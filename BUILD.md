@@ -8,7 +8,7 @@ minectl builds automatically on tag push via GitHub Actions (Rocky Linux 8.6).
 
 ```bash
 # Tag a release
-git tag v0.4.0
+git tag v0.3.0
 git push --tags
 
 # GitHub Actions automatically:
@@ -17,7 +17,7 @@ git push --tags
 # 3. Uploads to GitHub Releases
 ```
 
-RPM will be available at: `https://github.com/yourusername/minectl/releases/tag/vX.Y.Z`
+RPM will be available at: `https://github.com/<name>/minectl/releases/tag/vX.Y.Z`
 
 ## Manual Local Build
 
@@ -31,24 +31,25 @@ dnf install -y rpmdevtools rpmlint
 mkdir -p ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
 
 # Create source tarball
-tar czf ~/rpmbuild/SOURCES/minectl-0.4.0.tar.gz \
+tar czf ~/rpmbuild/SOURCES/minectl-0.3.0.tar.gz \
     --exclude=.git \
     --exclude=.gitignore \
     --exclude='.*.sw*' \
     --exclude=.github \
-    --transform='s,^,minectl-0.4.0/,' \
+    --exclude=dev \
+    --transform='s,^,minectl-0.3.0/,' \
     .
 
 # Build RPM
 rpmbuild -ba minectl.spec
 
-# Result: ~/rpmbuild/RPMS/noarch/minectl-0.4.0-1.fc39.noarch.rpm
+# Result: ~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc39.noarch.rpm
 ```
 
 ## Install Locally
 
 ```bash
-sudo dnf install -y ~/rpmbuild/RPMS/noarch/minectl-0.4.0-1.fc39.noarch.rpm
+sudo dnf install -y ~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc39.noarch.rpm
 minectl version
 ```
 
@@ -60,17 +61,14 @@ minectl version
 
 This is a convenience wrapper around the manual process above.
 
-## Spec File
+## GitHub Actions Workflow
 
-The `minectl.spec` file defines:
+The `.github/workflows/build-rpm.yml` workflow:
 
-- Package name, version, release
-- Build requirements
-- Installation paths
-- Post-install actions
-- File ownership and permissions
-
-Update version in `minectl.spec` before building, or it will auto-update during GitHub Actions build.
+1. Triggers on git tag push (e.g., `v0.3.0`)
+2. Builds in Rocky Linux 8.6 container
+3. Runs rpmlint validation
+4. Uploads to GitHub Releases
 
 ## Version Management
 
@@ -78,6 +76,6 @@ Version is defined in:
 
 1. `minectl.spec` — RPM version
 2. `minectl` CLI — `MINECTL_VERSION` variable
-3. GitHub tag — `v0.4.0` format
+3. GitHub tag — `v0.3.0` format
 
 Keep these in sync.
