@@ -1,173 +1,198 @@
 #!/bin/bash
 
-# minectl configuration management
-# Handles client and server configs with priority: server > client
+# minectl configuration management library
+# Centralized config at: /home/minecraft-servers/ (or custom path)
+
+set -euo pipefail
 
 # Colors for output
-COLOR_ENABLED="${COLORED_OUTPUT:-true}"
+color_red() { echo -e "\033[0;31m$1\033[0m"; }
+color_green() { echo -e "\033[0;32m$1\033[0m"; }
+color_yellow() { echo -e "\033[0;33m$1\033[0m"; }
+color_blue() { echo -e "\033[0;34m$1\033[0m"; }
 
-color_red() { [[ "$COLOR_ENABLED" == "true" ]] && echo -e "\033[0;31m$1\033[0m" || echo "$1"; }
-color_green() { [[ "$COLOR_ENABLED" == "true" ]] && echo -e "\033[0;32m$1\033[0m" || echo "$1"; }
-color_yellow() { [[ "$COLOR_ENABLED" == "true" ]] && echo -e "\033[0;33m$1\033[0m" || echo "$1"; }
-color_blue() { [[ "$COLOR_ENABLED" == "true" ]] && echo -e "\033[0;34m$1\033[0m" || echo "$1"; }
+# Get config directory (client-side or from server)
+# Usage: get_config_dir [remote_user_host]
+get_config_dir() {
+    local remote="${1:-}"
+    
+    # Check client config first
+    if [[ -f "$HOME/.minectl/config" ]]; then
+        grep "^CONFIG_DIR=" "$HOME/.minectl/config" | cut -d= -f2 || echo "/home/minecraft-servers"
+    else
+        # Use server config
+        if [[ -n "$remote" ]]; then
+            ssh "$remote" "grep '^CONFIG_DIR=' /home/minecraft-servers/config 2>/dev/null | cut -d= -f2 || echo '/home/minecraft-servers'"
+        else
+            echo "/home/minecraft-servers"
+        fi
+    fi
+}
 
 # Load config file into associative array
-# Usage: load_config <path> <array_name>
 load_config() {
     local config_file="$1"
     local -n config_ref="$2"
 
-    if [[ ! -f "$config_file" ]]; then
-        return 0
-    fi
+    [[ ! -f "$config_file" ]] && return 0
 
     while IFS='=' read -r key value; do
-        # Skip comments and empty lines
         [[ "$key" =~ ^#.*$ ]] && continue
         [[ -z "$key" ]] && continue
-
-        # Remove leading/trailing whitespace
         key=$(echo "$key" | xargs)
         value=$(echo "$value" | xargs)
-
         config_ref["$key"]="$value"
     done < "$config_file"
 }
 
-# Write config to file
-# Usage: write_config <path> <array_name>
-write_config() {
-    local config_file="$1"
-    local -n config_ref="$2"
-
-    mkdir -p "$(dirname "$config_file")"
-
-    {
-        echo "# minectl configuration"
-        echo "# Generated: $(date)"
-        echo ""
-        for key in "${!config_ref[@]}"; do
-            echo "${key}=${config_ref[$key]}"
-        done
-    } > "$config_file"
-}
-
-# Merge two configs: priority over base
-# Usage: merge_configs <base_array> <priority_array> <result_array>
-merge_configs() {
-    local -n base="$1"
-    local -n priority="$2"
-    local -n result="$3"
-
-    # Copy base first
-    for key in "${!base[@]}"; do
-        result["$key"]="${base[$key]}"
-    done
-
-    # Override with priority
-    for key in "${!priority[@]}"; do
-        result["$key"]="${priority[$key]}"
-    done
-}
-
-# Get config value with fallback
-# Usage: get_config <config_array> <key> [default]
-get_config() {
+# Validate required config keys
+# Usage: validate_config <config_array> <required_keys...>
+validate_config() {
     local -n config="$1"
-    local key="$2"
-    local default="${3:-}"
+    shift
+    local -a required=("$@")
+    local missing=()
 
-    if [[ -v config["$key"] ]]; then
-        echo "${config[$key]}"
-    else
-        echo "$default"
+    for key in "${required[@]}"; do
+        if [[ -z "${config[$key]:-}" ]]; then
+            missing+=("$key")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "$(color_red "✗ Missing required config keys:")"
+        for key in "${missing[@]}"; do
+            echo "  - $key"
+        done
+        return 1
     fi
+
+    return 0
 }
 
-# Detect config conflicts and prompt user
-# Usage: prompt_override <server_name> <key> <server_value> <client_value>
-# Returns: 0 if use server, 1 if use client
-prompt_override() {
-    local server_name="$1"
-    local key="$2"
-    local server_value="$3"
-    local client_value="$4"
+# Validate server config
+# Usage: validate_server_config <config_array>
+validate_server_config() {
+    local -n config="$1"
+    
+    local required=(
+        "ENABLED"
+        "PORT"
+        "MEMORY"
+        "JAR_URL"
+    )
 
-    echo ""
-    echo "$(color_yellow "⚠ Config conflict for '$server_name':")"
-    echo "  $(color_blue "Server config ($key):")" $(color_green "$server_value")
-    echo "  $(color_blue "Your config ($key):")"   $(color_red "$client_value")
-    echo ""
-    echo "Use server config? (y/n) [default: y]"
-    read -r response
-    [[ -z "$response" || "$response" == "y" || "$response" == "Y" ]]
+    validate_config config "${required[@]}"
 }
 
-# Get effective config for a server (merges client + server + per-server)
-# Usage: get_server_config <remote_user_host> <server_name> <result_array_name>
-get_server_config() {
-    local remote_user_host="$1"
+# Validate global config
+# Usage: validate_global_config <config_array>
+validate_global_config() {
+    local -n config="$1"
+    
+    local required=(
+        "JAVA_VERSION"
+        "MC_USER"
+        "MC_BASE_DIR"
+    )
+
+    validate_config config "${required[@]}"
+}
+
+# Load and validate server config
+# Usage: load_server_config <config_dir> <server_name> <result_array>
+load_server_config() {
+    local config_dir="$1"
     local server_name="$2"
     local -n result="$3"
 
-    declare -A client_config
-    declare -A server_config
-    declare -A perserver_config
+    local server_config_file="$config_dir/servers/$server_name.conf"
 
-    # 1. Load client config
-    load_config "$HOME/.minectl/config.conf" client_config
-
-    # 2. Load server global config (remote)
-    ssh "$remote_user_host" "cat /opt/minecraft/.minectl/config.conf 2>/dev/null || echo ''" | while read -r line; do
-        [[ "$line" =~ ^#.*$ ]] && continue
-        [[ -z "$line" ]] && continue
-        local key="${line%%=*}"
-        local value="${line##*=}"
-        server_config["$key"]="$value"
-    done
-
-    # 3. Load per-server config (remote)
-    ssh "$remote_user_host" "cat /opt/minecraft/servers/$server_name/.minectl/config.conf 2>/dev/null || echo ''" | while read -r line; do
-        [[ "$line" =~ ^#.*$ ]] && continue
-        [[ -z "$line" ]] && continue
-        local key="${line%%=*}"
-        local value="${line##*=}"
-        perserver_config["$key"]="$value"
-    done
-
-    # 4. Merge: perserver > server > client
-    merge_configs client_config server_config result
-    merge_configs result perserver_config result
-}
-
-# Reload server configuration on remote
-# Usage: reload_server_config <remote_user_host>
-reload_server_config() {
-    local remote_user_host="$1"
-
-    echo "[minectl] Reloading server configurations on $remote_user_host..."
-    ssh "$remote_user_host" "sudo /opt/minecraft/.minectl/reload.sh"
-
-    if [[ $? -eq 0 ]]; then
-        echo "[minectl] $(color_green "Reload successful.")"
-    else
-        echo "[minectl] $(color_red "Reload failed. Check server logs.")"
+    if [[ ! -f "$server_config_file" ]]; then
+        echo "$(color_red "✗ Server config not found: $server_config_file")"
+        return 1
     fi
+
+    load_config "$server_config_file" result
+
+    if ! validate_server_config result; then
+        return 1
+    fi
+
+    return 0
 }
 
-# List servers with their status from config
-# Usage: list_servers_from_config <remote_user_host>
-list_servers_from_config() {
-    local remote_user_host="$1"
+# Load and validate global config
+# Usage: load_global_config <config_dir> <result_array>
+load_global_config() {
+    local config_dir="$1"
+    local -n result="$2"
 
-    echo "[minectl] Servers on $remote_user_host:"
-    ssh "$remote_user_host" "for dir in /opt/minecraft/servers/*/; do \
-        server_name=\$(basename \$dir); \
-        status_file=\"/opt/minecraft/.minectl/\${server_name}.status\"; \
-        if grep -q 'ENABLED=true' \$dir/.minectl/config.conf 2>/dev/null; then \
-            echo \"  ✓ \$server_name (enabled)\"; \
-        else \
-            echo \"  ✗ \$server_name (disabled)\"; \
-        fi; \
-    done"
+    local global_config_file="$config_dir/config"
+
+    if [[ ! -f "$global_config_file" ]]; then
+        echo "$(color_red "✗ Global config not found: $global_config_file")"
+        return 1
+    fi
+
+    load_config "$global_config_file" result
+
+    if ! validate_global_config result; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Get config value with validation
+get_config_value() {
+    local -n config="$1"
+    local key="$2"
+    
+    if [[ -z "${config[$key]:-}" ]]; then
+        echo "$(color_red "✗ Config key not set: $key")"
+        return 1
+    fi
+    
+    echo "${config[$key]}"
+}
+
+# Prompt for config value
+prompt_config_value() {
+    local key="$1"
+    local default="${2:-}"
+    local prompt_text="$key"
+
+    if [[ -n "$default" ]]; then
+        prompt_text="$key [$default]"
+    fi
+
+    read -p "$(color_blue "? $prompt_text: ")" value
+    echo "${value:-$default}"
+}
+
+# List all servers from config
+list_servers_from_config() {
+    local config_dir="$1"
+    local servers_dir="$config_dir/servers"
+
+    if [[ ! -d "$servers_dir" ]]; then
+        echo "$(color_yellow "No servers configured.")"
+        return 0
+    fi
+
+    echo "$(color_green "Configured servers:")"
+    for server_conf in "$servers_dir"/*.conf; do
+        [[ -f "$server_conf" ]] || continue
+        
+        local server_name=$(basename "$server_conf" .conf)
+        local enabled=$(grep "^ENABLED=" "$server_conf" | cut -d= -f2 || echo "unknown")
+        local port=$(grep "^PORT=" "$server_conf" | cut -d= -f2 || echo "unknown")
+        
+        if [[ "$enabled" == "true" ]]; then
+            echo "  $(color_green "✓") $server_name (port $port)"
+        else
+            echo "  $(color_red "✗") $server_name (port $port, disabled)"
+        fi
+    done
 }

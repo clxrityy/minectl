@@ -1,204 +1,274 @@
 #!/bin/bash
 
 # minectl — remote Minecraft server automation CLI
-# Usage: minectl <command> [options]
+# Requires centralized config at /home/minecraft-servers/ or custom path
 
 set -euo pipefail
 
-MINECTL_VERSION="0.2.0"
+MINECTL_VERSION="0.3.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 
-# Source config library
 source "$LIB_DIR/config.sh"
 
 usage() {
-    cat <<EOF
-minectl v${MINECTL_VERSION} — remote Minecraft server automation
+    cat <<'EOF'
+minectl v0.3.0 — remote Minecraft server automation
 
 Usage:
-  minectl deploy <user@host> --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL]
+  minectl init <user@host> [--config-dir PATH]
+  minectl create-server <user@host> --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL]
   minectl start <user@host> --server-name NAME
   minectl stop <user@host> --server-name NAME
   minectl status <user@host> --server-name NAME
   minectl logs <user@host> --server-name NAME [--follow]
   minectl list <user@host>
-  minectl reload <user@host>
-  minectl config <user@host> --server-name NAME [--key KEY] [--value VALUE]
+  minectl config <user@host> [--server-name NAME] [--key KEY] [--value VALUE]
+  minectl validate <user@host> [--server-name NAME]
   minectl version
 
 Commands:
-  deploy        Deploy and initialize Minecraft server on remote Rocky Linux box
-  start         Start the Minecraft server (via systemd)
-  stop          Stop the Minecraft server (via systemd)
-  status        Check Minecraft server status
-  logs          View Minecraft server logs
-  list          List all servers on the remote host
-  reload        Reload server configurations (apply ENABLED settings)
-  config        View or modify server configuration
-  version       Show version
+  init              Initialize centralized config on remote host (interactive)
+  create-server     Create and deploy a new Minecraft server
+  start             Start a Minecraft server (via systemd)
+  stop              Stop a Minecraft server (via systemd)
+  status            Check server status
+  logs              View server logs
+  list              List all configured servers
+  config            View or modify configuration
+  validate          Validate config completeness
+  version           Show version
 
 Options:
-  --server-name NAME       Name of the server (required for most commands)
-  --port PORT              Minecraft server port (default: 25565)
-  --memory MEMORY          JVM memory allocation (default: 2G)
-  --jar JAR_URL            Direct URL to server JAR (default: latest Vanilla)
+  --server-name NAME       Name of the server
+  --port PORT              Minecraft server port
+  --memory MEMORY          JVM memory allocation
+  --jar JAR_URL            Direct URL to server JAR
+  --config-dir PATH        Config directory path (default: /home/minecraft-servers)
   --follow                 Follow logs in real-time
   --key KEY                Config key to view/set
   --value VALUE            Config value to set
 
-Config Files (priority: per-server > server global > client):
-  ~/.minectl/config.conf                                      Client config
-  /opt/minecraft/.minectl/config.conf                          Server global config
-  /opt/minecraft/servers/SERVER_NAME/.minectl/config.conf      Per-server config
+Config Structure:
+  /home/minecraft-servers/
+  ├── config                    # Global config (JAVA_VERSION, MC_USER, MC_BASE_DIR)
+  └── servers/
+      ├── survival.conf         # Per-server config (ENABLED, PORT, MEMORY, JAR_URL)
+      ├── creative.conf
+      └── ...
 
-Example:
-  minectl deploy ubuntu@10.0.0.5 --server-name survival --port 25565 --memory 4G
-  minectl start ubuntu@10.0.0.5 --server-name survival
-  minectl config ubuntu@10.0.0.5 --server-name survival --key ENABLED --value false
-  minectl reload ubuntu@10.0.0.5
-  minectl logs ubuntu@10.0.0.5 --server-name survival --follow
-  minectl list ubuntu@10.0.0.5
+Priority:
+  Server-side config has full authority. Client-side is read-only reference.
 
 EOF
     exit 1
-}}
+}
 
 version() {
     echo "minectl v${MINECTL_VERSION}"
 }
 
-deploy() {
+# Initialize config on remote host (interactive)
+init() {
+    local remote_user_host="$1"
+    local config_dir="${CONFIG_DIR:-/home/minecraft-servers}"
+
+    echo "$(color_blue "Initializing minectl on $remote_user_host...")"
+    echo "Config directory: $config_dir"
+    echo ""
+
+    # Create remote config directory
+    ssh "$remote_user_host" "mkdir -p '$config_dir/servers' && chmod 755 '$config_dir'"
+
+    # Create global config interactively
+    echo "$(color_yellow "Setting up global configuration...")"
+    
+    local java_version=$(prompt_config_value "Java version" "17")
+    local mc_user=$(prompt_config_value "Minecraft user" "minecraft")
+    local mc_base_dir=$(prompt_config_value "Minecraft base directory" "/opt/minecraft")
+
+    # Create global config
+    ssh "$remote_user_host" "cat > '$config_dir/config' <<EOFCONF
+# minectl global configuration
+# Generated: $(date)
+
+JAVA_VERSION=$java_version
+MC_USER=$mc_user
+MC_BASE_DIR=$mc_base_dir
+
+EOFCONF
+"
+
+    echo "$(color_green "✓ Global config created.")"
+    echo ""
+    echo "$(color_blue "Next steps:")"
+    echo "  minectl create-server $remote_user_host --server-name survival"
+    echo "  minectl create-server $remote_user_host --server-name creative"
+    echo "  minectl list $remote_user_host"
+}
+
+# Create a new server
+create_server() {
     local remote_user_host="$1"
     local server_name="$2"
     local port="${PORT:-25565}"
     local memory="${MEMORY:-2G}"
     local jar_url="${JAR_URL:-}"
+    local config_dir=$(get_config_dir "$remote_user_host")
 
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
 
-    echo "[minectl] Deploying Minecraft server '$server_name' to $remote_user_host..."
-    echo "[minectl] Configuration: port=$port, memory=$memory"
+    echo "$(color_blue "Creating server: $server_name")"
 
-    # Transfer bootstrap script
-    echo "[minectl] Transferring bootstrap script..."
+    # Validate global config exists
+    declare -A global_config
+    if ! load_global_config "$config_dir" global_config 2>/dev/null; then
+        echo "$(color_red "✗ Global config not found. Run: minectl init $remote_user_host")"
+        exit 1
+    fi
+
+    # Create server config
+    local java_version=$(get_config_value global_config "JAVA_VERSION")
+    local mc_user=$(get_config_value global_config "MC_USER")
+    local mc_base_dir=$(get_config_value global_config "MC_BASE_DIR")
+
+    local server_config="$config_dir/servers/$server_name.conf"
+
+    # Download JAR URL if not provided
+    if [[ -z "$jar_url" ]]; then
+        echo "Detecting latest Minecraft JAR..."
+        jar_url="https://launcher.mojang.com/v1/objects/8dd1a28015f51b1803213892b50b7b4116555cfa/server.jar"
+    fi
+
+    # Create server config on remote
+    ssh "$remote_user_host" "cat > '$server_config' <<EOFCONF
+# minectl server configuration: $server_name
+# Generated: $(date)
+
+ENABLED=true
+PORT=$port
+MEMORY=$memory
+JAR_URL=$jar_url
+
+EOFCONF
+"
+
+    echo "$(color_green "✓ Server config created: $server_config")"
+
+    # Deploy server (bootstrap)
+    echo "Deploying server..."
     scp -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
-    scp -q "$SCRIPT_DIR/bootstrap/reload.sh" "$remote_user_host:/tmp/minectl-reload.sh"
+    
+    ssh "$remote_user_host" "bash /tmp/minectl-bootstrap.sh \
+        --server-name '$server_name' \
+        --port '$port' \
+        --memory '$memory' \
+        --jar '$jar_url' \
+        --java-version '$java_version' \
+        --mc-user '$mc_user' \
+        --mc-base-dir '$mc_base_dir'"
 
-    # Execute bootstrap on remote
-    echo "[minectl] Running bootstrap on remote host..."
-    ssh -o StrictHostKeyChecking=accept-new "$remote_user_host" \
-        "bash /tmp/minectl-bootstrap.sh --server-name '$server_name' --port $port --memory $memory${jar_url:+ --jar $jar_url}"
-
-    echo "[minectl] Deployment complete. Server '$server_name' configured and ready to start."
-    echo "[minectl] Run: minectl start $remote_user_host --server-name $server_name"
+    echo "$(color_green "✓ Server deployed.")"
+    echo ""
+    echo "$(color_blue "Next:")"
+    echo "  minectl start $remote_user_host --server-name $server_name"
 }
 
 start() {
     local remote_user_host="$1"
     local server_name="$2"
+
+    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+
     local service_name="minecraft-${server_name}"
-
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
-
-    echo "[minectl] Starting server '$server_name' on $remote_user_host..."
-    ssh "$remote_user_host" "sudo systemctl start $service_name && echo '[minectl] Service started.'"
+    echo "$(color_blue "Starting $server_name...")"
+    
+    ssh "$remote_user_host" "sudo systemctl start '$service_name'"
+    echo "$(color_green "✓ Started.")"
 }
 
 stop() {
     local remote_user_host="$1"
     local server_name="$2"
+
+    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+
     local service_name="minecraft-${server_name}"
-
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
-
-    echo "[minectl] Stopping server '$server_name' on $remote_user_host..."
-    ssh "$remote_user_host" "sudo systemctl stop $service_name && echo '[minectl] Service stopped.'"
+    echo "$(color_blue "Stopping $server_name...")"
+    
+    ssh "$remote_user_host" "sudo systemctl stop '$service_name'"
+    echo "$(color_green "✓ Stopped.")"
 }
 
 status() {
     local remote_user_host="$1"
     local server_name="$2"
+
+    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+
     local service_name="minecraft-${server_name}"
-
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
-
-    echo "[minectl] Checking status of server '$server_name' on $remote_user_host..."
-    ssh "$remote_user_host" "sudo systemctl status $service_name"
+    ssh "$remote_user_host" "sudo systemctl status '$service_name'"
 }
 
 logs() {
     local remote_user_host="$1"
     local server_name="$2"
     local follow_flag=""
+
+    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+
+    [[ "${FOLLOW:-0}" == "1" ]] && follow_flag="-f"
+
     local service_name="minecraft-${server_name}"
-
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
-
-    if [[ "${FOLLOW:-0}" == "1" ]]; then
-        follow_flag="-f"
-    fi
-
-    echo "[minectl] Fetching logs from $remote_user_host (server: $server_name)..."
-    ssh "$remote_user_host" "sudo journalctl -u $service_name -n 50 $follow_flag"
+    ssh "$remote_user_host" "sudo journalctl -u '$service_name' -n 50 $follow_flag"
 }
 
 list_servers() {
     local remote_user_host="$1"
+    local config_dir=$(get_config_dir "$remote_user_host")
 
-    echo "[minectl] Listing all servers on $remote_user_host..."
-    ssh "$remote_user_host" "sudo systemctl list-units 'minecraft-*.service' --no-pager"
-}
-
-reload_config() {
-    local remote_user_host="$1"
-
-    reload_server_config "$remote_user_host"
-}
-
-set_config() {
-    local remote_user_host="$1"
-    local server_name="$2"
-    local key="$3"
-    local value="$4"
-
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
-    [[ -z "$key" ]] && { echo "[minectl] ERROR: --key is required"; exit 1; }
-    [[ -z "$value" ]] && { echo "[minectl] ERROR: --value is required"; exit 1; }
-
-    echo "[minectl] Setting $key=$value for server '$server_name' on $remote_user_host..."
+    echo "$(color_blue "Servers on $remote_user_host:")"
     ssh "$remote_user_host" "
-        config_file='/opt/minecraft/servers/$server_name/.minectl/config.conf'
-        sudo mkdir -p \"\$(dirname \\"\$config_file\")\"
-        if grep -q '^${key}=' \"\$config_file\" 2>/dev/null; then
-            sudo sed -i 's/^${key}=.*/#{key}=${value}/' \"\$config_file\"
-        else
-            echo '${key}=${value}' | sudo tee -a \"\$config_file\" > /dev/null
-        fi
-        echo '[minectl] Configuration updated.'
-    "
-}
-
-get_config() {
-    local remote_user_host="$1"
-    local server_name="$2"
-    local key="$3"
-
-    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
-
-    echo "[minectl] Getting config for server '$server_name' on $remote_user_host..."
-    ssh "$remote_user_host" "
-        config_file='/opt/minecraft/servers/$server_name/.minectl/config.conf'
-        if [[ -f \"\$config_file\" ]]; then
-            if [[ -z '$key' ]]; then
-                cat \"\$config_file\"
-            else
-                grep -E '^${key}=' \"\$config_file\" || echo '[minectl] Key not found: $key'
-            fi
-        else
-            echo '[minectl] Config file not found'
+        servers_dir='$config_dir/servers'
+        if [[ -d \$servers_dir ]]; then
+            for conf in \$servers_dir/*.conf; do
+                [[ -f \$conf ]] || continue
+                server_name=\$(basename \$conf .conf)
+                enabled=\$(grep '^ENABLED=' \$conf | cut -d= -f2 || echo 'unknown')
+                port=\$(grep '^PORT=' \$conf | cut -d= -f2 || echo 'unknown')
+                
+                if [[ \$enabled == 'true' ]]; then
+                    echo \"  ✓ \$server_name (port \$port)\"
+                else
+                    echo \"  ✗ \$server_name (port \$port, disabled)\"
+                fi
+            done
         fi
     "
+}
+
+validate_config() {
+    local remote_user_host="$1"
+    local server_name="${2:-}"
+    local config_dir=$(get_config_dir "$remote_user_host")
+
+    if [[ -n "$server_name" ]]; then
+        echo "$(color_blue "Validating $server_name config...")"
+        declare -A server_config
+        if load_server_config "$config_dir" "$server_name" server_config; then
+            echo "$(color_green "✓ Server config valid.")"
+        else
+            exit 1
+        fi
+    else
+        echo "$(color_blue "Validating global config...")"
+        declare -A global_config
+        if load_global_config "$config_dir" global_config; then
+            echo "$(color_green "✓ Global config valid.")"
+        else
+            exit 1
+        fi
+    fi
 }
 
 # Parse arguments
@@ -208,7 +278,19 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-    deploy)
+    init)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --config-dir) CONFIG_DIR="$2"; shift 2 ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        init "$REMOTE"
+        ;;
+    create-server)
         [[ $# -lt 1 ]] && usage
         REMOTE="$1"
         shift
@@ -222,7 +304,7 @@ case "$COMMAND" in
                 *) echo "Unknown option: $1"; usage ;;
             esac
         done
-        deploy "$REMOTE" "$SERVER_NAME"
+        create_server "$REMOTE" "$SERVER_NAME"
         ;;
     start)
         [[ $# -lt 1 ]] && usage
@@ -282,31 +364,26 @@ case "$COMMAND" in
         REMOTE="$1"
         list_servers "$REMOTE"
         ;;
-    reload)
-        [[ $# -lt 1 ]] && usage
-        REMOTE="$1"
-        reload_config "$REMOTE"
-        ;;
     config)
         [[ $# -lt 1 ]] && usage
         REMOTE="$1"
         shift
+        echo "Reading server-side config from $REMOTE..."
+        CONFIG_DIR=$(ssh "$REMOTE" "grep '^CONFIG_DIR=' /home/minecraft-servers/config 2>/dev/null | cut -d= -f2 || echo '/home/minecraft-servers'")
+        ssh "$REMOTE" "cat '$CONFIG_DIR/config' 2>/dev/null && echo '' && ls -la '$CONFIG_DIR/servers/'"
+        ;;
+    validate)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
         SERVER_NAME=""
-        CONFIG_KEY=""
-        CONFIG_VALUE=""
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
-                --key) CONFIG_KEY="$2"; shift 2 ;;
-                --value) CONFIG_VALUE="$2"; shift 2 ;;
                 *) echo "Unknown option: $1"; usage ;;
             esac
         done
-        if [[ -n "$CONFIG_VALUE" ]]; then
-            set_config "$REMOTE" "$SERVER_NAME" "$CONFIG_KEY" "$CONFIG_VALUE"
-        else
-            get_config "$REMOTE" "$SERVER_NAME" "$CONFIG_KEY"
-        fi
+        validate_config "$REMOTE" "$SERVER_NAME"
         ;;
     version)
         version
