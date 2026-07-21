@@ -1,0 +1,224 @@
+#!/bin/bash
+
+# minectl — remote Minecraft server automation CLI
+# Usage: minectl <command> [options]
+
+set -euo pipefail
+
+MINECTL_VERSION="0.1.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<EOF
+minectl v${MINECTL_VERSION} — remote Minecraft server automation
+
+Usage:
+  minectl deploy <user@host> --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL]
+  minectl start <user@host> --server-name NAME
+  minectl stop <user@host> --server-name NAME
+  minectl status <user@host> --server-name NAME
+  minectl logs <user@host> --server-name NAME [--follow]
+  minectl list <user@host>
+  minectl version
+
+Commands:
+  deploy        Deploy and initialize Minecraft server on remote Rocky Linux box
+  start         Start the Minecraft server (via systemd)
+  stop          Stop the Minecraft server (via systemd)
+  status        Check Minecraft server status
+  logs          View Minecraft server logs
+  list          List all servers on the remote host
+  version       Show version
+
+Options:
+  --server-name NAME       Name of the server (required for all commands except list/version)
+  --port PORT              Minecraft server port (default: 25565)
+  --memory MEMORY          JVM memory allocation (default: 2G)
+  --jar JAR_URL            Direct URL to server JAR (default: latest Vanilla)
+  --follow                 Follow logs in real-time
+
+Example:
+  minectl deploy ubuntu@10.0.0.5 --server-name survival --port 25565 --memory 4G
+  minectl deploy ubuntu@10.0.0.5 --server-name creative --port 25566 --memory 2G
+  minectl start ubuntu@10.0.0.5 --server-name survival
+  minectl logs ubuntu@10.0.0.5 --server-name survival --follow
+  minectl list ubuntu@10.0.0.5
+
+EOF
+    exit 1
+}
+
+version() {
+    echo "minectl v${MINECTL_VERSION}"
+}
+
+deploy() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local port="${PORT:-25565}"
+    local memory="${MEMORY:-2G}"
+    local jar_url="${JAR_URL:-}"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+
+    echo "[minectl] Deploying Minecraft server '$server_name' to $remote_user_host..."
+    echo "[minectl] Configuration: port=$port, memory=$memory"
+
+    # Transfer bootstrap script
+    echo "[minectl] Transferring bootstrap script..."
+    scp -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
+
+    # Execute bootstrap on remote
+    echo "[minectl] Running bootstrap on remote host..."
+    ssh -o StrictHostKeyChecking=accept-new "$remote_user_host" \
+        "bash /tmp/minectl-bootstrap.sh --server-name '$server_name' --port $port --memory $memory${jar_url:+ --jar $jar_url}"
+
+    echo "[minectl] Deployment complete. Server '$server_name' configured and ready to start."
+    echo "[minectl] Run: minectl start $remote_user_host --server-name $server_name"
+}
+
+start() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local service_name="minecraft-${server_name}"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+
+    echo "[minectl] Starting server '$server_name' on $remote_user_host..."
+    ssh "$remote_user_host" "sudo systemctl start $service_name && echo '[minectl] Service started.'"
+}
+
+stop() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local service_name="minecraft-${server_name}"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+
+    echo "[minectl] Stopping server '$server_name' on $remote_user_host..."
+    ssh "$remote_user_host" "sudo systemctl stop $service_name && echo '[minectl] Service stopped.'"
+}
+
+status() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local service_name="minecraft-${server_name}"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+
+    echo "[minectl] Checking status of server '$server_name' on $remote_user_host..."
+    ssh "$remote_user_host" "sudo systemctl status $service_name"
+}
+
+logs() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local follow_flag=""
+    local service_name="minecraft-${server_name}"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+
+    if [[ "${FOLLOW:-0}" == "1" ]]; then
+        follow_flag="-f"
+    fi
+
+    echo "[minectl] Fetching logs from $remote_user_host (server: $server_name)..."
+    ssh "$remote_user_host" "sudo journalctl -u $service_name -n 50 $follow_flag"
+}
+
+list_servers() {
+    local remote_user_host="$1"
+
+    echo "[minectl] Listing all servers on $remote_user_host..."
+    ssh "$remote_user_host" "sudo systemctl list-units 'minecraft-*.service' --no-pager"
+}
+
+# Parse arguments
+[[ $# -eq 0 ]] && usage
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    deploy)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                --port) PORT="$2"; shift 2 ;;
+                --memory) MEMORY="$2"; shift 2 ;;
+                --jar) JAR_URL="$2"; shift 2 ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        deploy "$REMOTE" "$SERVER_NAME"
+        ;;
+    start)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        start "$REMOTE" "$SERVER_NAME"
+        ;;
+    stop)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        stop "$REMOTE" "$SERVER_NAME"
+        ;;
+    status)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        status "$REMOTE" "$SERVER_NAME"
+        ;;
+    logs)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                --follow) FOLLOW=1; shift ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        logs "$REMOTE" "$SERVER_NAME"
+        ;;
+    list)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        list_servers "$REMOTE"
+        ;;
+    version)
+        version
+        ;;
+    *)
+        echo "Unknown command: $COMMAND"
+        usage
+        ;;
+esac
