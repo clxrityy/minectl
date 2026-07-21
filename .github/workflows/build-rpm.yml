@@ -1,0 +1,65 @@
+name: Build and Release RPM
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:8.6
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          dnf install -y rpmdevtools rpmlint git
+
+      - name: Setup rpmbuild
+        run: |
+          mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Create source tarball
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          cd /tmp
+          cp -r $GITHUB_WORKSPACE minectl-${VERSION}
+          tar czf /root/rpmbuild/SOURCES/minectl-${VERSION}.tar.gz \
+            --exclude=.git \
+            --exclude=.gitignore \
+            --exclude='.*.sw*' \
+            --exclude=.github \
+            minectl-${VERSION}/
+
+      - name: Copy spec file
+        run: |
+          cp minectl.spec /root/rpmbuild/SPECS/
+
+      - name: Build RPM
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/^Version:.*/Version:        ${VERSION}/" /root/rpmbuild/SPECS/minectl.spec
+          rpmbuild -ba /root/rpmbuild/SPECS/minectl.spec
+
+      - name: Check RPM
+        run: |
+          rpmlint /root/rpmbuild/RPMS/noarch/*.rpm || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            /root/rpmbuild/RPMS/noarch/*.rpm
+            /root/rpmbuild/SRPMS/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

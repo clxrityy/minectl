@@ -1,19 +1,31 @@
 #!/bin/bash
-# Installation script for minectl
-# Usage: ./install.sh [--prefix /usr/local]
 
-PREFIX="${1:---prefix}"
-PREFIX_PATH="${2:---usr/local}"
+# Install minectl from repo
+# Usage: curl -fsSL https://yourusername.github.io/minectl/install.sh | bash
 
-if [[ "$PREFIX" != "--prefix" ]]; then
-    PREFIX_PATH="$PREFIX"
+set -euo pipefail
+
+REPO_URL="${REPO_URL:-https://yourusername.github.io/minectl/repo/}"
+
+echo "Installing minectl from $REPO_URL"
+
+# Add repo
+sudo dnf config-manager --add-repo "$REPO_URL"
+
+# Install
+sudo dnf install -y minectl
+
+# Setup config
+if [[ ! -f ~/.minectl/config ]]; then
+    mkdir -p ~/.minectl
+    cp /etc/skel/.minectl/config.template ~/.minectl/config
+    echo ""
+    echo "✓ minectl installed!"
+    echo "✓ Edit ~/.minectl/config to set CONFIG_DIR"
+    echo ""
+    echo "Next steps:"
+    echo "  nano ~/.minectl/config"
+    echo "  minectl init user@host"
+else
+    echo "✓ minectl installed!"
 fi
-
-INSTALL_DIR="$PREFIX_PATH/bin"
-
-mkdir -p "$INSTALL_DIR"
-cp minectl "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/minectl"
-
-echo "✓ minectl installed to $INSTALL_DIR/minectl"
-echo "✓ Add to PATH or run: $INSTALL_DIR/minectl --help"
