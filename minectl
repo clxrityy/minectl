@@ -5,8 +5,12 @@
 
 set -euo pipefail
 
-MINECTL_VERSION="0.1.0"
+MINECTL_VERSION="0.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source config library
+source "$LIB_DIR/config.sh"
 
 usage() {
     cat <<EOF
@@ -19,6 +23,8 @@ Usage:
   minectl status <user@host> --server-name NAME
   minectl logs <user@host> --server-name NAME [--follow]
   minectl list <user@host>
+  minectl reload <user@host>
+  minectl config <user@host> --server-name NAME [--key KEY] [--value VALUE]
   minectl version
 
 Commands:
@@ -28,25 +34,35 @@ Commands:
   status        Check Minecraft server status
   logs          View Minecraft server logs
   list          List all servers on the remote host
+  reload        Reload server configurations (apply ENABLED settings)
+  config        View or modify server configuration
   version       Show version
 
 Options:
-  --server-name NAME       Name of the server (required for all commands except list/version)
+  --server-name NAME       Name of the server (required for most commands)
   --port PORT              Minecraft server port (default: 25565)
   --memory MEMORY          JVM memory allocation (default: 2G)
   --jar JAR_URL            Direct URL to server JAR (default: latest Vanilla)
   --follow                 Follow logs in real-time
+  --key KEY                Config key to view/set
+  --value VALUE            Config value to set
+
+Config Files (priority: per-server > server global > client):
+  ~/.minectl/config.conf                                      Client config
+  /opt/minecraft/.minectl/config.conf                          Server global config
+  /opt/minecraft/servers/SERVER_NAME/.minectl/config.conf      Per-server config
 
 Example:
   minectl deploy ubuntu@10.0.0.5 --server-name survival --port 25565 --memory 4G
-  minectl deploy ubuntu@10.0.0.5 --server-name creative --port 25566 --memory 2G
   minectl start ubuntu@10.0.0.5 --server-name survival
+  minectl config ubuntu@10.0.0.5 --server-name survival --key ENABLED --value false
+  minectl reload ubuntu@10.0.0.5
   minectl logs ubuntu@10.0.0.5 --server-name survival --follow
   minectl list ubuntu@10.0.0.5
 
 EOF
     exit 1
-}
+}}
 
 version() {
     echo "minectl v${MINECTL_VERSION}"
@@ -67,6 +83,7 @@ deploy() {
     # Transfer bootstrap script
     echo "[minectl] Transferring bootstrap script..."
     scp -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
+    scp -q "$SCRIPT_DIR/bootstrap/reload.sh" "$remote_user_host:/tmp/minectl-reload.sh"
 
     # Execute bootstrap on remote
     echo "[minectl] Running bootstrap on remote host..."
@@ -131,6 +148,57 @@ list_servers() {
 
     echo "[minectl] Listing all servers on $remote_user_host..."
     ssh "$remote_user_host" "sudo systemctl list-units 'minecraft-*.service' --no-pager"
+}
+
+reload_config() {
+    local remote_user_host="$1"
+
+    reload_server_config "$remote_user_host"
+}
+
+set_config() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local key="$3"
+    local value="$4"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+    [[ -z "$key" ]] && { echo "[minectl] ERROR: --key is required"; exit 1; }
+    [[ -z "$value" ]] && { echo "[minectl] ERROR: --value is required"; exit 1; }
+
+    echo "[minectl] Setting $key=$value for server '$server_name' on $remote_user_host..."
+    ssh "$remote_user_host" "
+        config_file='/opt/minecraft/servers/$server_name/.minectl/config.conf'
+        sudo mkdir -p \"\$(dirname \\"\$config_file\")\"
+        if grep -q '^${key}=' \"\$config_file\" 2>/dev/null; then
+            sudo sed -i 's/^${key}=.*/#{key}=${value}/' \"\$config_file\"
+        else
+            echo '${key}=${value}' | sudo tee -a \"\$config_file\" > /dev/null
+        fi
+        echo '[minectl] Configuration updated.'
+    "
+}
+
+get_config() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local key="$3"
+
+    [[ -z "$server_name" ]] && { echo "[minectl] ERROR: --server-name is required"; exit 1; }
+
+    echo "[minectl] Getting config for server '$server_name' on $remote_user_host..."
+    ssh "$remote_user_host" "
+        config_file='/opt/minecraft/servers/$server_name/.minectl/config.conf'
+        if [[ -f \"\$config_file\" ]]; then
+            if [[ -z '$key' ]]; then
+                cat \"\$config_file\"
+            else
+                grep -E '^${key}=' \"\$config_file\" || echo '[minectl] Key not found: $key'
+            fi
+        else
+            echo '[minectl] Config file not found'
+        fi
+    "
 }
 
 # Parse arguments
@@ -213,6 +281,32 @@ case "$COMMAND" in
         [[ $# -lt 1 ]] && usage
         REMOTE="$1"
         list_servers "$REMOTE"
+        ;;
+    reload)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        reload_config "$REMOTE"
+        ;;
+    config)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        CONFIG_KEY=""
+        CONFIG_VALUE=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                --key) CONFIG_KEY="$2"; shift 2 ;;
+                --value) CONFIG_VALUE="$2"; shift 2 ;;
+                *) echo "Unknown option: $1"; usage ;;
+            esac
+        done
+        if [[ -n "$CONFIG_VALUE" ]]; then
+            set_config "$REMOTE" "$SERVER_NAME" "$CONFIG_KEY" "$CONFIG_VALUE"
+        else
+            get_config "$REMOTE" "$SERVER_NAME" "$CONFIG_KEY"
+        fi
         ;;
     version)
         version
