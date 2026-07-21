@@ -10,9 +10,9 @@ set -euo pipefail
 PORT=25565
 MEMORY="2G"
 JAR_URL=""
-SERVICE_NAME="minecraft-server"
+SERVER_NAME=""
+MC_BASE_DIR="/opt/minecraft"
 MC_USER="minecraft"
-MC_HOME="/opt/minecraft"
 JAVA_VERSION="17"
 
 usage() {
@@ -20,12 +20,13 @@ usage() {
 bootstrap.sh — Initialize Minecraft server on Rocky Linux
 
 Usage:
-  bootstrap.sh [--port PORT] [--memory MEMORY] [--jar JAR_URL]
+  bootstrap.sh --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL]
 
 Options:
-  --port PORT      Minecraft server port (default: 25565)
-  --memory MEMORY  JVM memory allocation (default: 2G)
-  --jar JAR_URL    Direct URL to server JAR (default: latest Vanilla)
+  --server-name NAME   Name of the server (required) — creates /opt/minecraft/NAME/
+  --port PORT          Minecraft server port (default: 25565)
+  --memory MEMORY      JVM memory allocation (default: 2G)
+  --jar JAR_URL        Direct URL to server JAR (default: latest Vanilla)
 
 EOF
     exit 1
@@ -34,6 +35,7 @@ EOF
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --server-name) SERVER_NAME="$2"; shift 2 ;;
         --port) PORT="$2"; shift 2 ;;
         --memory) MEMORY="$2"; shift 2 ;;
         --jar) JAR_URL="$2"; shift 2 ;;
@@ -41,11 +43,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+[[ -z "$SERVER_NAME" ]] && { echo "[bootstrap] ERROR: --server-name is required"; exit 1; }
+
 log() {
     echo "[bootstrap] $1"
 }
 
+MC_HOME="$MC_BASE_DIR/$SERVER_NAME"
+SERVICE_NAME="minecraft-${SERVER_NAME}"
+
 log "Starting Minecraft server bootstrap on Rocky Linux"
+log "Server: $SERVER_NAME"
+log "Server home: $MC_HOME"
 log "Configuration: port=$PORT, memory=$MEMORY, jar_url=${JAR_URL:-vanilla}"
 
 # Check if running as root (required for systemd setup)
@@ -61,7 +70,7 @@ dnf install -y java-${JAVA_VERSION}-openjdk-headless
 # Step 2: Create minecraft user and directories
 log "Creating minecraft user and directories..."
 if ! id "$MC_USER" &>/dev/null; then
-    useradd -r -s /bin/bash -d "$MC_HOME" "$MC_USER"
+    useradd -r -s /bin/bash "$MC_USER"
     log "Created user: $MC_USER"
 fi
 
@@ -70,6 +79,11 @@ chown "$MC_USER:$MC_USER" "$MC_HOME"
 chmod 755 "$MC_HOME"
 
 cd "$MC_HOME"
+
+# Create plugins and world directories
+mkdir -p "$MC_HOME/plugins"
+mkdir -p "$MC_HOME/world"
+chown -R "$MC_USER:$MC_USER" "$MC_HOME/plugins" "$MC_HOME/world"
 
 # Step 3: Download server JAR if not provided
 if [[ -z "$JAR_URL" ]]; then
@@ -145,6 +159,8 @@ systemctl enable "$SERVICE_NAME"
 
 log "Bootstrap complete!"
 log "Service installed: $SERVICE_NAME"
-log "Service directory: $MC_HOME"
+log "Server directory: $MC_HOME"
+log "Server name: $SERVER_NAME"
 log "To start: sudo systemctl start $SERVICE_NAME"
 log "To check logs: sudo journalctl -u $SERVICE_NAME -f"
+log "To manage: minectl start <user@host> --server-name $SERVER_NAME"
