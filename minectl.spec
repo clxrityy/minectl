@@ -9,6 +9,7 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  bash
 Requires:       bash, openssh-clients, curl
+BuildArch:      noarch
 
 %description
 minectl is a command-line tool for deploying and managing multiple Minecraft
