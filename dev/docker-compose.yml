@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Development client (runs minectl commands)
+  client:
+    image: rockylinux:8.6
+    container_name: minectl-client
+    volumes:
+      - ..:/minectl
+      - client-home:/root
+    working_dir: /minectl
+    environment:
+      - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/minectl
+    command: /bin/sleep infinity
+    networks:
+      - minectl-dev
+    depends_on:
+      - server1
+      - server2
+
+  # Development server 1
+  server1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minectl-server1
+    environment:
+      - HOSTNAME=minectl-server1
+    volumes:
+      - server1-home:/home
+      - server1-opt:/opt
+    networks:
+      - minectl-dev
+    ports:
+      - "2222:22"
+
+  # Development server 2
+  server2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minectl-server2
+    environment:
+      - HOSTNAME=minectl-server2
+    volumes:
+      - server2-home:/home
+      - server2-opt:/opt
+    networks:
+      - minectl-dev
+    ports:
+      - "2223:22"
+
+volumes:
+  client-home:
+  server1-home:
+  server1-opt:
+  server2-home:
+  server2-opt:
+
+networks:
+  minectl-dev:
+    driver: bridge

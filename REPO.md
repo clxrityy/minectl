@@ -1,70 +1,144 @@
-# minectl DNF Repository
+# DNF Repository
 
-This repository hosts RPM packages for minectl.
+Users can install minectl directly via DNF from GitHub Releases.
 
 ## Installation
 
-Add the repository to your system:
+### Quick Install (from GitHub Releases)
 
 ```bash
-sudo dnf install -y https://github.com/clxrityy/minectl/releases/download/v0.3.0/minectl-0.3.0-1.fc39.noarch.rpm
+# Install latest release directly
+sudo dnf install -y https://github.com/yourusername/minectl/releases/download/v0.4.0/minectl-0.4.0-1.el8.noarch.rpm
 ```
 
-Or add the repo permanently:
+Or use the install script:
 
 ```bash
-sudo dnf config-manager --add-repo https://clxrityy.github.io/minectl/repo/
+curl -fsSL https://yourusername.github.io/minectl/install.sh | bash
+```
+
+### Setup Repository (Recommended)
+
+Host the `repo/` directory on GitHub Pages or a web server.
+
+```bash
+# Add repository
+sudo dnf config-manager --add-repo https://yourusername.github.io/minectl/repo/
+
+# Install
 sudo dnf install -y minectl
+
+# Update later
+sudo dnf update minectl
 ```
 
-## Repository Structure
+## Repository Hosting
+
+The `repo/` directory contains:
+```
+repo/
+├── repodata/          # Generated metadata
+├── Packages/          # RPM files
+└── index.html         # Optional directory listing
+```
+
+### Setup on GitHub Pages
+
+1. Create `repo/` directory in project
+2. Add RPMs to `repo/Packages/`
+3. Generate metadata: `createrepo repo/`
+4. Push to `gh-pages` branch
+5. Enable GitHub Pages in repository settings
 
 ```bash
-repo/
-├── repodata/
-│   ├── repomd.xml
-│   ├── primary.xml.gz
-│   └── filelists.xml.gz
-└── Packages/
-    └── minectl-*.noarch.rpm
+mkdir -p repo/Packages
+cp ~/rpmbuild/RPMS/noarch/*.rpm repo/Packages/
+createrepo repo/
+git add repo/
+git commit -m "Add minectl RPM"
+git push origin gh-pages
+```
+
+### Setup on Static Host
+
+Upload `repo/` directory to any HTTP server:
+
+```bash
+scp -r repo/ user@server:/var/www/minectl/
+# Users add: sudo dnf config-manager --add-repo http://server/minectl/repo/
 ```
 
 ## Building and Publishing
 
-See [BUILD.md](../BUILD.md) for build instructions.
+1. **Tag release**: `git tag v0.4.0 && git push --tags`
+2. **GitHub Actions builds** and uploads to Releases automatically
+3. **Download RPM** from GitHub Releases
+4. **Add to repo**: `cp minectl-0.4.0-1.el8.noarch.rpm repo/Packages/`
+5. **Update metadata**: `createrepo repo/`
+6. **Push to GitHub Pages**: `git push`
 
-To publish:
+## User Workflow
 
-1. Build RPM locally
-2. Upload to GitHub Releases
-3. Regenerate repodata with `createrepo`
-4. Push changes
-
-### Example
+After repo setup:
 
 ```bash
-# Build
-./build-rpm.sh
+# Install
+sudo dnf install minectl
 
-# Create repo directory
-mkdir -p repo/Packages
-cp ~/rpmbuild/RPMS/noarch/*.rpm repo/Packages/
+# Setup config
+mkdir -p ~/.minectl
+cat > ~/.minectl/config <<EOF
+CONFIG_DIR=/home/minecraft-servers
+SSH_USER=minecraft-servers
+EOF
 
-# Generate metadata
+# Use
+minectl init user@host
+```
+
+## Maintenance
+
+### Update Repository
+
+```bash
+# Download new RPM from Releases
+wget https://github.com/yourusername/minectl/releases/download/vX.Y.Z/minectl-X.Y.Z-1.el8.noarch.rpm
+
+# Add to repo
+cp minectl-X.Y.Z-1.el8.noarch.rpm repo/Packages/
+
+# Regenerate metadata
 createrepo repo/
 
-# Commit and push
+# Push
 git add repo/
-git commit -m "Update minectl RPM to v0.3.0"
+git commit -m "Update minectl to vX.Y.Z"
 git push
 ```
 
-## For Repository Maintainers
-
-Users can then install from your repo:
+### Clean Old Versions
 
 ```bash
-sudo dnf config-manager --add-repo https://clxrityy.github.io/minectl/repo/
-sudo dnf makecache
-sudo dnf install -y minectl
+# Remove old RPMs
+rm repo/Packages/minectl-*-old-version.noarch.rpm
+
+# Regenerate
+createrepo repo/
+
+git add repo/
+git commit -m "Remove old versions"
+git push
+```
+
+## Testing Repository
+
+```bash
+# Add test repo
+sudo dnf config-manager --add-repo http://localhost:8000/repo/
+
+# Serve locally (for testing)
+cd repo && python3 -m http.server 8000
+
+# Install from local repo
+sudo dnf install minectl
 ```

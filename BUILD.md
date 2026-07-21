@@ -1,73 +1,81 @@
-# Build and Install minectl as RPM
+# Building minectl
 
-## Prerequisites
+## Automated Builds (Recommended)
+
+minectl builds automatically on tag push via GitHub Actions (Rocky Linux 8.6).
+
+### Release Process
 
 ```bash
-dnf install -y rpmdevtools
+# Tag a release
+git tag v0.4.0
+git push --tags
+
+# GitHub Actions automatically:
+# 1. Builds RPM in Rocky Linux 8.6 container
+# 2. Runs rpmlint checks
+# 3. Uploads to GitHub Releases
 ```
 
-## Build Package
+RPM will be available at: `https://github.com/yourusername/minectl/releases/tag/vX.Y.Z`
+
+## Manual Local Build
+
+For local development testing:
 
 ```bash
-# Clone repo
-git clone https://github.com/clxrityy/minectl.git
-cd minectl
+# Install dependencies
+dnf install -y rpmdevtools rpmlint
 
-# Create tarball
-mkdir -p ~/rpmbuild/SOURCES
-tar czf ~/rpmbuild/SOURCES/minectl-0.3.0.tar.gz \
+# Setup rpmbuild directories
+mkdir -p ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+
+# Create source tarball
+tar czf ~/rpmbuild/SOURCES/minectl-0.4.0.tar.gz \
     --exclude=.git \
     --exclude=.gitignore \
-    --transform='s,^,minectl-0.3.0/,' \
-    --exclude='minectl-0.3.0' \
+    --exclude='.*.sw*' \
+    --exclude=.github \
+    --transform='s,^,minectl-0.4.0/,' \
     .
 
 # Build RPM
 rpmbuild -ba minectl.spec
 
-# Package will be at: ~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc*.noarch.rpm
+# Result: ~/rpmbuild/RPMS/noarch/minectl-0.4.0-1.fc39.noarch.rpm
 ```
 
 ## Install Locally
 
 ```bash
-sudo dnf install -y ~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc*.noarch.rpm
-```
-
-## Verify Installation
-
-```bash
+sudo dnf install -y ~/rpmbuild/RPMS/noarch/minectl-0.4.0-1.fc39.noarch.rpm
 minectl version
-# Should output: minectl v0.3.0
 ```
 
-## Setup Client Config
+## Using Build Script
 
 ```bash
-# Edit ~/.minectl/config
-nano ~/.minectl/config
-
-# Set CONFIG_DIR to remote path
-# Example: CONFIG_DIR=/home/minecraft-servers
+./build-rpm.sh
 ```
 
-## Use minectl
+This is a convenience wrapper around the manual process above.
 
-```bash
-minectl init user@host
-minectl create-server user@host --server-name survival
-```
+## Spec File
 
-## Publish to Repository
+The `minectl.spec` file defines:
+- Package name, version, release
+- Build requirements
+- Installation paths
+- Post-install actions
+- File ownership and permissions
 
-To publish to a private/public RPM repository, upload the built RPM from:
+Update version in `minectl.spec` before building, or it will auto-update during GitHub Actions build.
 
-```bash
-~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc*.noarch.rpm
-```
+## Version Management
 
-Then users can install with:
+Version is defined in:
+1. `minectl.spec` — RPM version
+2. `minectl` CLI — `MINECTL_VERSION` variable
+3. GitHub tag — `v0.4.0` format
 
-```bash
-dnf install minectl
-```
+Keep these in sync.
