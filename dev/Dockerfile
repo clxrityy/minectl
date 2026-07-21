@@ -26,9 +26,13 @@ RUN echo "minecraft ALL=(ALL) NOPASSWD: /usr/bin/systemctl" >> /etc/sudoers.d/mi
 RUN mkdir -p /home/minecraft-servers/servers && \
     chown minecraft:minecraft /home/minecraft-servers
 
-# Setup authorized_keys for testing
+# Setup SSH with key-based auth
 RUN mkdir -p /root/.ssh && \
-    chmod 700 /root/.ssh
+    chmod 700 /root/.ssh && \
+    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \
+    echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && \
+    echo "root:minectl" | chpasswd
 
 EXPOSE 22
 
