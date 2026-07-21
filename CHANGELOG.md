@@ -2,18 +2,26 @@
 
 ## [0.3.0]
 
-### Changed
-
-- Config directory now fully client-side configurable via `~/.minectl/config`
-- Moved from hardcoded `/home/minecraft-servers/` to dynamic `CONFIG_DIR`
-- SSH user is now the config directory owner
-- Server-side config is fully authoritative
-
 ### Added
 
-- RPM packaging support (minectl.spec)
-- Build instructions (BUILD.md)
-- Automatic config template installation
+- RPM packaging support (minectl.spec, GitHub Actions CI/CD)
+- Automated Docker development environment (dev/)
+- Automated test suite (dev/test.sh)
+- SSH host key checking disabled for dev/testing environments
+- Client-side configuration via `~/.minectl/config`
+
+### Changed
+
+- Config directory now fully client-side configurable via `CONFIG_DIR`
+- SSH user is now the config directory owner
+- Removed `xargs` dependency for config parsing (uses bash parameter expansion)
+- Improved error messages and validation
+
+### Fixed
+
+- SSH connectivity in containerized environments
+- Config parsing without external utilities
+- Docker Compose compatibility for development
 
 ## [0.2.0]
 
