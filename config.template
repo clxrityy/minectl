@@ -1,24 +1,10 @@
 # minectl client configuration
-# Location: ~/.minectl/config.conf
-# Server configs override these values.
+# Location: ~/.minectl/config
+# Server configs are stored at CONFIG_DIR on the remote host
 
-# Default server connection (user@host)
-DEFAULT_HOST=
+# Config directory on remote host (required)
+# Typically: /home/SSH_USER/minecraft-servers
+CONFIG_DIR=/home/minecraft-servers
 
-# Default memory allocation for new servers
-DEFAULT_MEMORY=2G
-
-# Default port for new servers (increments per server)
-DEFAULT_PORT=25565
-
-# Default Java version
-JAVA_VERSION=17
-
-# Auto-start servers on boot (true/false)
-AUTO_START=true
-
-# Enable colored output
-COLORED_OUTPUT=true
-
-# Verbosity: 0=quiet, 1=normal, 2=verbose
-VERBOSITY=1
+# SSH user for deployment (used for config directory path)
+SSH_USER=minecraft-servers

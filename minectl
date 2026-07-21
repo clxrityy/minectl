@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # minectl — remote Minecraft server automation CLI
-# Requires centralized config at /home/minecraft-servers/ or custom path
+# Config directory specified in ~/.minectl/config (CONFIG_DIR)
 
 set -euo pipefail
 
@@ -16,49 +16,17 @@ usage() {
 minectl v0.3.0 — remote Minecraft server automation
 
 Usage:
-  minectl init <user@host> [--config-dir PATH]
+  minectl init <user@host>
   minectl create-server <user@host> --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL]
   minectl start <user@host> --server-name NAME
   minectl stop <user@host> --server-name NAME
   minectl status <user@host> --server-name NAME
   minectl logs <user@host> --server-name NAME [--follow]
   minectl list <user@host>
-  minectl config <user@host> [--server-name NAME] [--key KEY] [--value VALUE]
   minectl validate <user@host> [--server-name NAME]
   minectl version
 
-Commands:
-  init              Initialize centralized config on remote host (interactive)
-  create-server     Create and deploy a new Minecraft server
-  start             Start a Minecraft server (via systemd)
-  stop              Stop a Minecraft server (via systemd)
-  status            Check server status
-  logs              View server logs
-  list              List all configured servers
-  config            View or modify configuration
-  validate          Validate config completeness
-  version           Show version
-
-Options:
-  --server-name NAME       Name of the server
-  --port PORT              Minecraft server port
-  --memory MEMORY          JVM memory allocation
-  --jar JAR_URL            Direct URL to server JAR
-  --config-dir PATH        Config directory path (default: /home/minecraft-servers)
-  --follow                 Follow logs in real-time
-  --key KEY                Config key to view/set
-  --value VALUE            Config value to set
-
-Config Structure:
-  /home/minecraft-servers/
-  ├── config                    # Global config (JAVA_VERSION, MC_USER, MC_BASE_DIR)
-  └── servers/
-      ├── survival.conf         # Per-server config (ENABLED, PORT, MEMORY, JAR_URL)
-      ├── creative.conf
-      └── ...
-
-Priority:
-  Server-side config has full authority. Client-side is read-only reference.
+See docs/ for full documentation.
 
 EOF
     exit 1
@@ -71,9 +39,24 @@ version() {
 # Initialize config on remote host (interactive)
 init() {
     local remote_user_host="$1"
-    local config_dir="${CONFIG_DIR:-/home/minecraft-servers}"
+    
+    # Get client config
+    local client_config="$HOME/.minectl/config"
+    if [[ ! -f "$client_config" ]]; then
+        echo "$(color_red "✗ Client config not found: $client_config")"
+        echo "Create it: cp config.template ~/.minectl/config && edit CONFIG_DIR"
+        return 1
+    fi
+    
+    # Load CONFIG_DIR from client config
+    local config_dir
+    config_dir=$(grep "^CONFIG_DIR=" "$client_config" | cut -d= -f2)
+    if [[ -z "$config_dir" ]]; then
+        echo "$(color_red "✗ CONFIG_DIR not set in $client_config")"
+        return 1
+    fi
 
-    echo "$(color_blue "Initializing minectl on $remote_user_host...")"
+    echo "$(color_blue "Initializing on $remote_user_host...")"
     echo "Config directory: $config_dir"
     echo ""
 
@@ -101,10 +84,8 @@ EOFCONF
 
     echo "$(color_green "✓ Global config created.")"
     echo ""
-    echo "$(color_blue "Next steps:")"
+    echo "$(color_blue "Next:")"
     echo "  minectl create-server $remote_user_host --server-name survival"
-    echo "  minectl create-server $remote_user_host --server-name creative"
-    echo "  minectl list $remote_user_host"
 }
 
 # Create a new server
@@ -114,46 +95,51 @@ create_server() {
     local port="${PORT:-25565}"
     local memory="${MEMORY:-2G}"
     local jar_url="${JAR_URL:-}"
-    local config_dir=$(get_config_dir "$remote_user_host")
+    
+    # Get config_dir from client config
+    local config_dir
+    config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
 
     [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
 
     echo "$(color_blue "Creating server: $server_name")"
 
-    # Validate global config exists
+    # Load global config from remote
     declare -A global_config
-    if ! load_global_config "$config_dir" global_config 2>/dev/null; then
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^#.*$ ]] && continue
+        [[ -z "$key" ]] && continue
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+        global_config["$key"]="$value"
+    done < <(ssh "$remote_user_host" "cat '$config_dir/config' 2>/dev/null" || echo "")
+
+    if [[ -z "${global_config[JAVA_VERSION]:-}" ]]; then
         echo "$(color_red "✗ Global config not found. Run: minectl init $remote_user_host")"
         exit 1
     fi
 
-    # Create server config
-    local java_version=$(get_config_value global_config "JAVA_VERSION")
-    local mc_user=$(get_config_value global_config "MC_USER")
-    local mc_base_dir=$(get_config_value global_config "MC_BASE_DIR")
+    local java_version="${global_config[JAVA_VERSION]}"
+    local mc_user="${global_config[MC_USER]}"
+    local mc_base_dir="${global_config[MC_BASE_DIR]}"
 
-    local server_config="$config_dir/servers/$server_name.conf"
-
-    # Download JAR URL if not provided
+    # Default JAR if not provided
     if [[ -z "$jar_url" ]]; then
-        echo "Detecting latest Minecraft JAR..."
         jar_url="https://launcher.mojang.com/v1/objects/8dd1a28015f51b1803213892b50b7b4116555cfa/server.jar"
     fi
 
     # Create server config on remote
+    local server_config="$config_dir/servers/$server_name.conf"
     ssh "$remote_user_host" "cat > '$server_config' <<EOFCONF
-# minectl server configuration: $server_name
-# Generated: $(date)
-
+# minectl server: $server_name
 ENABLED=true
 PORT=$port
 MEMORY=$memory
 JAR_URL=$jar_url
-
 EOFCONF
 "
 
-    echo "$(color_green "✓ Server config created: $server_config")"
+    echo "$(color_green "✓ Server config created.")"
 
     # Deploy server (bootstrap)
     echo "Deploying server..."
@@ -169,8 +155,6 @@ EOFCONF
         --mc-base-dir '$mc_base_dir'"
 
     echo "$(color_green "✓ Server deployed.")"
-    echo ""
-    echo "$(color_blue "Next:")"
     echo "  minectl start $remote_user_host --server-name $server_name"
 }
 
@@ -225,47 +209,43 @@ logs() {
 
 list_servers() {
     local remote_user_host="$1"
-    local config_dir=$(get_config_dir "$remote_user_host")
+    
+    local config_dir
+    config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
 
     echo "$(color_blue "Servers on $remote_user_host:")"
     ssh "$remote_user_host" "
-        servers_dir='$config_dir/servers'
-        if [[ -d \$servers_dir ]]; then
-            for conf in \$servers_dir/*.conf; do
-                [[ -f \$conf ]] || continue
-                server_name=\$(basename \$conf .conf)
-                enabled=\$(grep '^ENABLED=' \$conf | cut -d= -f2 || echo 'unknown')
-                port=\$(grep '^PORT=' \$conf | cut -d= -f2 || echo 'unknown')
-                
-                if [[ \$enabled == 'true' ]]; then
-                    echo \"  ✓ \$server_name (port \$port)\"
-                else
-                    echo \"  ✗ \$server_name (port \$port, disabled)\"
-                fi
-            done
-        fi
+        for conf in '$config_dir/servers'/*.conf 2>/dev/null; do
+            [[ -f \$conf ]] || continue
+            name=\$(basename \$conf .conf)
+            enabled=\$(grep '^ENABLED=' \$conf | cut -d= -f2 || echo '?')
+            port=\$(grep '^PORT=' \$conf | cut -d= -f2 || echo '?')
+            [[ \"\$enabled\" == \"true\" ]] && echo \"  \u2713 \$name (port \$port)\" || echo \"  \u2717 \$name (port \$port, disabled)\"
+        done
     "
 }
 
 validate_config() {
     local remote_user_host="$1"
     local server_name="${2:-}"
-    local config_dir=$(get_config_dir "$remote_user_host")
+    
+    local config_dir
+    config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
 
     if [[ -n "$server_name" ]]; then
-        echo "$(color_blue "Validating $server_name config...")"
-        declare -A server_config
-        if load_server_config "$config_dir" "$server_name" server_config; then
-            echo "$(color_green "✓ Server config valid.")"
+        echo "$(color_blue "Validating $server_name...")"
+        if ssh "$remote_user_host" "[[ -f '$config_dir/servers/$server_name.conf' ]]"; then
+            echo "$(color_green "✓ Valid.")"
         else
+            echo "$(color_red "✗ Not found.")"
             exit 1
         fi
     else
         echo "$(color_blue "Validating global config...")"
-        declare -A global_config
-        if load_global_config "$config_dir" global_config; then
-            echo "$(color_green "✓ Global config valid.")"
+        if ssh "$remote_user_host" "[[ -f '$config_dir/config' ]]"; then
+            echo "$(color_green "✓ Valid.")"
         else
+            echo "$(color_red "✗ Not found.")"
             exit 1
         fi
     fi
@@ -280,15 +260,7 @@ shift
 case "$COMMAND" in
     init)
         [[ $# -lt 1 ]] && usage
-        REMOTE="$1"
-        shift
-        while [[ $# -gt 0 ]]; do
-            case "$1" in
-                --config-dir) CONFIG_DIR="$2"; shift 2 ;;
-                *) echo "Unknown option: $1"; usage ;;
-            esac
-        done
-        init "$REMOTE"
+        init "$1"
         ;;
     create-server)
         [[ $# -lt 1 ]] && usage
@@ -301,7 +273,7 @@ case "$COMMAND" in
                 --port) PORT="$2"; shift 2 ;;
                 --memory) MEMORY="$2"; shift 2 ;;
                 --jar) JAR_URL="$2"; shift 2 ;;
-                *) echo "Unknown option: $1"; usage ;;
+                *) shift ;;
             esac
         done
         create_server "$REMOTE" "$SERVER_NAME"
@@ -314,7 +286,7 @@ case "$COMMAND" in
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
-                *) echo "Unknown option: $1"; usage ;;
+                *) shift ;;
             esac
         done
         start "$REMOTE" "$SERVER_NAME"
@@ -327,7 +299,7 @@ case "$COMMAND" in
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
-                *) echo "Unknown option: $1"; usage ;;
+                *) shift ;;
             esac
         done
         stop "$REMOTE" "$SERVER_NAME"
@@ -340,7 +312,7 @@ case "$COMMAND" in
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
-                *) echo "Unknown option: $1"; usage ;;
+                *) shift ;;
             esac
         done
         status "$REMOTE" "$SERVER_NAME"
@@ -354,23 +326,14 @@ case "$COMMAND" in
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
                 --follow) FOLLOW=1; shift ;;
-                *) echo "Unknown option: $1"; usage ;;
+                *) shift ;;
             esac
         done
         logs "$REMOTE" "$SERVER_NAME"
         ;;
     list)
         [[ $# -lt 1 ]] && usage
-        REMOTE="$1"
-        list_servers "$REMOTE"
-        ;;
-    config)
-        [[ $# -lt 1 ]] && usage
-        REMOTE="$1"
-        shift
-        echo "Reading server-side config from $REMOTE..."
-        CONFIG_DIR=$(ssh "$REMOTE" "grep '^CONFIG_DIR=' /home/minecraft-servers/config 2>/dev/null | cut -d= -f2 || echo '/home/minecraft-servers'")
-        ssh "$REMOTE" "cat '$CONFIG_DIR/config' 2>/dev/null && echo '' && ls -la '$CONFIG_DIR/servers/'"
+        list_servers "$1"
         ;;
     validate)
         [[ $# -lt 1 ]] && usage
@@ -380,7 +343,7 @@ case "$COMMAND" in
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
-                *) echo "Unknown option: $1"; usage ;;
+                *) shift ;;
             esac
         done
         validate_config "$REMOTE" "$SERVER_NAME"
@@ -389,7 +352,6 @@ case "$COMMAND" in
         version
         ;;
     *)
-        echo "Unknown command: $COMMAND"
         usage
         ;;
 esac

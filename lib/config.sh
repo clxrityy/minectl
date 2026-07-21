@@ -11,22 +11,25 @@ color_green() { echo -e "\033[0;32m$1\033[0m"; }
 color_yellow() { echo -e "\033[0;33m$1\033[0m"; }
 color_blue() { echo -e "\033[0;34m$1\033[0m"; }
 
-# Get config directory (client-side or from server)
-# Usage: get_config_dir [remote_user_host]
+# Get config directory from client config
+# Client specifies the root directory; server stores configs there
+# Usage: get_config_dir
 get_config_dir() {
-    local remote="${1:-}"
+    local client_config="$HOME/.minectl/config"
     
-    # Check client config first
-    if [[ -f "$HOME/.minectl/config" ]]; then
-        grep "^CONFIG_DIR=" "$HOME/.minectl/config" | cut -d= -f2 || echo "/home/minecraft-servers"
-    else
-        # Use server config
-        if [[ -n "$remote" ]]; then
-            ssh "$remote" "grep '^CONFIG_DIR=' /home/minecraft-servers/config 2>/dev/null | cut -d= -f2 || echo '/home/minecraft-servers'"
-        else
-            echo "/home/minecraft-servers"
-        fi
+    if [[ ! -f "$client_config" ]]; then
+        echo "$(color_red "✗ Client config not found: $client_config")"
+        return 1
     fi
+    
+    local config_dir=$(grep "^CONFIG_DIR=" "$client_config" | cut -d= -f2)
+    
+    if [[ -z "$config_dir" ]]; then
+        echo "$(color_red "✗ CONFIG_DIR not set in client config")"
+        return 1
+    fi
+    
+    echo "$config_dir"
 }
 
 # Load config file into associative array
@@ -94,6 +97,7 @@ validate_global_config() {
         "JAVA_VERSION"
         "MC_USER"
         "MC_BASE_DIR"
+        "SSH_USER"
     )
 
     validate_config config "${required[@]}"
