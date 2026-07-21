@@ -4,8 +4,9 @@ Remote Minecraft server automation for Rocky Linux. Deploy and manage multiple s
 
 > [!CAUTION]
 > **UNDER DEVELOPMENT**
-> No stable release available yet
-> **Recommended**: See [Development](dev/README.md) for local testing with Docker.
+>
+> - No stable release available yet
+> - **Recommended**: See [Development](dev/README.md) for local testing with Docker.
 
 ## Quick Install
 
