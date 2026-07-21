@@ -36,6 +36,21 @@ version() {
     echo "minectl v${MINECTL_VERSION}"
 }
 
+# SSH wrapper with dev-friendly options
+# Usage: ssh_cmd "user@host" "command"
+ssh_cmd() {
+    local remote="$1"
+    local cmd="$2"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "$cmd"
+}
+
+# SCP wrapper
+scp_cmd() {
+    local src="$1"
+    local dst="$2"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q "$src" "$dst"
+}
+
 # Initialize config on remote host (interactive)
 init() {
     local remote_user_host="$1"
@@ -61,7 +76,7 @@ init() {
     echo ""
 
     # Create remote config directory
-    ssh "$remote_user_host" "mkdir -p '$config_dir/servers' && chmod 755 '$config_dir'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "mkdir -p '$config_dir/servers' && chmod 755 '$config_dir'"
 
     # Create global config interactively
     echo "$(color_yellow "Setting up global configuration...")"
@@ -71,7 +86,7 @@ init() {
     local mc_base_dir=$(prompt_config_value "Minecraft base directory" "/opt/minecraft")
 
     # Create global config
-    ssh "$remote_user_host" "cat > '$config_dir/config' <<EOFCONF
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "cat > '$config_dir/config' <<EOFCONF
 # minectl global configuration
 # Generated: $(date)
 
@@ -109,10 +124,11 @@ create_server() {
     while IFS='=' read -r key value; do
         [[ "$key" =~ ^#.*$ ]] && continue
         [[ -z "$key" ]] && continue
-        key=$(echo "$key" | xargs)
-        value=$(echo "$value" | xargs)
+        # Trim whitespace from key and value
+        key="${key## }" key="${key%% }"
+        value="${value## }" value="${value%% }"
         global_config["$key"]="$value"
-    done < <(ssh "$remote_user_host" "cat '$config_dir/config' 2>/dev/null" || echo "")
+    done < <(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "cat '$config_dir/config' 2>/dev/null" || echo "")
 
     if [[ -z "${global_config[JAVA_VERSION]:-}" ]]; then
         echo "$(color_red "✗ Global config not found. Run: minectl init $remote_user_host")"
@@ -130,7 +146,7 @@ create_server() {
 
     # Create server config on remote
     local server_config="$config_dir/servers/$server_name.conf"
-    ssh "$remote_user_host" "cat > '$server_config' <<EOFCONF
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "cat > '$server_config' <<EOFCONF
 # minectl server: $server_name
 ENABLED=true
 PORT=$port
@@ -143,9 +159,9 @@ EOFCONF
 
     # Deploy server (bootstrap)
     echo "Deploying server..."
-    scp -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
     
-    ssh "$remote_user_host" "bash /tmp/minectl-bootstrap.sh \
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "bash /tmp/minectl-bootstrap.sh \
         --server-name '$server_name' \
         --port '$port' \
         --memory '$memory' \
@@ -167,7 +183,7 @@ start() {
     local service_name="minecraft-${server_name}"
     echo "$(color_blue "Starting $server_name...")"
     
-    ssh "$remote_user_host" "sudo systemctl start '$service_name'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl start '$service_name'"
     echo "$(color_green "✓ Started.")"
 }
 
@@ -180,7 +196,7 @@ stop() {
     local service_name="minecraft-${server_name}"
     echo "$(color_blue "Stopping $server_name...")"
     
-    ssh "$remote_user_host" "sudo systemctl stop '$service_name'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl stop '$service_name'"
     echo "$(color_green "✓ Stopped.")"
 }
 
@@ -191,7 +207,7 @@ status() {
     [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
 
     local service_name="minecraft-${server_name}"
-    ssh "$remote_user_host" "sudo systemctl status '$service_name'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl status '$service_name'"
 }
 
 logs() {
@@ -204,7 +220,7 @@ logs() {
     [[ "${FOLLOW:-0}" == "1" ]] && follow_flag="-f"
 
     local service_name="minecraft-${server_name}"
-    ssh "$remote_user_host" "sudo journalctl -u '$service_name' -n 50 $follow_flag"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo journalctl -u '$service_name' -n 50 $follow_flag"
 }
 
 list_servers() {
@@ -214,7 +230,7 @@ list_servers() {
     config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
 
     echo "$(color_blue "Servers on $remote_user_host:")"
-    ssh "$remote_user_host" "
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "
         for conf in '$config_dir/servers'/*.conf 2>/dev/null; do
             [[ -f \$conf ]] || continue
             name=\$(basename \$conf .conf)
@@ -234,7 +250,7 @@ validate_config() {
 
     if [[ -n "$server_name" ]]; then
         echo "$(color_blue "Validating $server_name...")"
-        if ssh "$remote_user_host" "[[ -f '$config_dir/servers/$server_name.conf' ]]"; then
+        if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "[[ -f '$config_dir/servers/$server_name.conf' ]]"; then
             echo "$(color_green "✓ Valid.")"
         else
             echo "$(color_red "✗ Not found.")"
@@ -242,7 +258,7 @@ validate_config() {
         fi
     else
         echo "$(color_blue "Validating global config...")"
-        if ssh "$remote_user_host" "[[ -f '$config_dir/config' ]]"; then
+        if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "[[ -f '$config_dir/config' ]]"; then
             echo "$(color_green "✓ Valid.")"
         else
             echo "$(color_red "✗ Not found.")"
