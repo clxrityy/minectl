@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Install minectl from repo
-# Usage: curl -fsSL https://yourusername.github.io/minectl/install.sh | bash
+# Usage: curl -fsSL https://clxrityy.github.io/minectl/install.sh | bash
 
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://yourusername.github.io/minectl/repo/}"
+REPO_URL="${REPO_URL:-https://clxrityy.github.io/minectl/repo/}"
 
 echo "Installing minectl from $REPO_URL"
 

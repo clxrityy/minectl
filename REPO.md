@@ -8,13 +8,13 @@ Users can install minectl directly via DNF from GitHub Releases.
 
 ```bash
 # Install latest release directly
-sudo dnf install -y https://github.com/yourusername/minectl/releases/download/v0.4.0/minectl-0.4.0-1.el8.noarch.rpm
+sudo dnf install -y https://github.com/clxrityy/minectl/releases/download/v0.4.0/minectl-0.4.0-1.el8.noarch.rpm
 ```
 
-Or use the install script:
+Or use the install script from GitHub:
 
 ```bash
-curl -fsSL https://yourusername.github.io/minectl/install.sh | bash
+curl -fsSL https://clxrityy.github.io/minectl/install.sh | bash
 ```
 
 ### Setup Repository (Recommended)
@@ -23,7 +23,7 @@ Host the `repo/` directory on GitHub Pages or a web server.
 
 ```bash
 # Add repository
-sudo dnf config-manager --add-repo https://yourusername.github.io/minectl/repo/
+sudo dnf config-manager --add-repo https://clxrityy.github.io/minectl/repo/
 
 # Install
 sudo dnf install -y minectl
@@ -103,7 +103,7 @@ minectl init user@host
 
 ```bash
 # Download new RPM from Releases
-wget https://github.com/yourusername/minectl/releases/download/vX.Y.Z/minectl-X.Y.Z-1.el8.noarch.rpm
+wget https://github.com/clxrityy/minectl/releases/download/vX.Y.Z/minectl-X.Y.Z-1.el8.noarch.rpm
 
 # Add to repo
 cp minectl-X.Y.Z-1.el8.noarch.rpm repo/Packages/
