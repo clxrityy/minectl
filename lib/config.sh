@@ -42,8 +42,9 @@ load_config() {
     while IFS='=' read -r key value; do
         [[ "$key" =~ ^#.*$ ]] && continue
         [[ -z "$key" ]] && continue
-        key=$(echo "$key" | xargs)
-        value=$(echo "$value" | xargs)
+        # Trim whitespace without xargs
+        key="${key## }" key="${key%% }"
+        value="${value## }" value="${value%% }"
         config_ref["$key"]="$value"
     done < "$config_file"
 }
