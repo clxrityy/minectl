@@ -3,7 +3,7 @@ Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Remote Minecraft server automation for Rocky Linux
 
-License:        MIT
+License:        GPL-3.0-only
 URL:            https://github.com/clxrityy/minectl
 Source0:        %{name}-%{version}.tar.gz
 
@@ -30,6 +30,11 @@ mkdir -p %{buildroot}%{_datadir}/doc/minectl
 mkdir -p %{buildroot}%{_sysconfdir}/skel/.minectl
 
 install -m 755 minectl %{buildroot}%{_bindir}/minectl
+# Patch the lib path for the installed location
+sed -i 's|LIB_DIR="$SCRIPT_DIR/lib"|LIB_DIR="%{_datadir}/minectl/lib"|' \
+    %{buildroot}%{_bindir}/minectl
+sed -i 's|"$SCRIPT_DIR/bootstrap/bootstrap.sh"|"%{_datadir}/minectl/bootstrap/bootstrap.sh"|' \
+    %{buildroot}%{_bindir}/minectl
 install -m 755 lib/config.sh %{buildroot}%{_datadir}/minectl/lib/config.sh
 install -m 755 bootstrap/bootstrap.sh %{buildroot}%{_datadir}/minectl/bootstrap/bootstrap.sh
 install -m 644 config.template %{buildroot}%{_sysconfdir}/skel/.minectl/config.template
@@ -49,14 +54,7 @@ install -m 644 docs/architecture.md %{buildroot}%{_datadir}/doc/minectl/architec
 %config(noreplace) %{_sysconfdir}/skel/.minectl/config.template
 
 %post
-# Create user config directory if needed
-if [[ ! -d ~/.minectl ]]; then
-    mkdir -p ~/.minectl
-fi
-if [[ ! -f ~/.minectl/config ]]; then
-    cp %{_sysconfdir}/skel/.minectl/config.template ~/.minectl/config
-    echo "Created ~/.minectl/config - edit CONFIG_DIR before use"
-fi
+echo "Run 'cp %{_sysconfdir}/skel/.minectl/config.template ~/.minectl/config' to set up your config."
 
 %changelog
 * Fri Jan 17 2025 - 0.3.0-1
