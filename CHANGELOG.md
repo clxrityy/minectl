@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0]
+## 0.3.0
 
 ### Added
 
@@ -23,7 +23,7 @@
 - Config parsing without external utilities
 - Docker Compose compatibility for development
 
-## [0.2.0]
+## 0.2.0
 
 ### Added
 
@@ -37,7 +37,7 @@
 - Bootstrap script refactored for config-driven deployment
 - Server directories isolated from configs
 
-## [0.1.0]
+## 0.1.0
 
 ### Added
 
