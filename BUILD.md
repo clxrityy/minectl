@@ -63,6 +63,7 @@ This is a convenience wrapper around the manual process above.
 ## Spec File
 
 The `minectl.spec` file defines:
+
 - Package name, version, release
 - Build requirements
 - Installation paths
@@ -74,6 +75,7 @@ Update version in `minectl.spec` before building, or it will auto-update during 
 ## Version Management
 
 Version is defined in:
+
 1. `minectl.spec` — RPM version
 2. `minectl` CLI — `MINECTL_VERSION` variable
 3. GitHub tag — `v0.4.0` format

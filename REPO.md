@@ -35,7 +35,8 @@ sudo dnf update minectl
 ## Repository Hosting
 
 The `repo/` directory contains:
-```
+
+```bash
 repo/
 ├── repodata/          # Generated metadata
 ├── Packages/          # RPM files
