@@ -1,0 +1,7 @@
+[minectl]
+name=minectl
+baseurl=https://clxrityy.github.io/minectl/repo/
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+metadata_expire=6h
