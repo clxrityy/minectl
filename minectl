@@ -54,7 +54,7 @@ scp_cmd() {
 # Initialize config on remote host (interactive)
 init() {
     local remote_user_host="$1"
-    
+
     # Get client config
     local client_config="$HOME/.minectl/config"
     if [[ ! -f "$client_config" ]]; then
@@ -62,7 +62,7 @@ init() {
         echo "Create it: cp config.template ~/.minectl/config && edit CONFIG_DIR"
         return 1
     fi
-    
+
     # Load CONFIG_DIR from client config
     local config_dir
     config_dir=$(grep "^CONFIG_DIR=" "$client_config" | cut -d= -f2)
@@ -80,7 +80,7 @@ init() {
 
     # Create global config interactively
     echo "$(color_yellow "Setting up global configuration...")"
-    
+
     local java_version=$(prompt_config_value "Java version" "17")
     local mc_user=$(prompt_config_value "Minecraft user" "minecraft")
     local mc_base_dir=$(prompt_config_value "Minecraft base directory" "/opt/minecraft")
@@ -110,7 +110,7 @@ create_server() {
     local port="${PORT:-25565}"
     local memory="${MEMORY:-2G}"
     local jar_url="${JAR_URL:-}"
-    
+
     # Get config_dir from client config
     local config_dir
     config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
@@ -160,7 +160,7 @@ EOFCONF
     # Deploy server (bootstrap)
     echo "Deploying server..."
     scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
-    
+
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "bash /tmp/minectl-bootstrap.sh \
         --server-name '$server_name' \
         --port '$port' \
@@ -182,7 +182,7 @@ start() {
 
     local service_name="minecraft-${server_name}"
     echo "$(color_blue "Starting $server_name...")"
-    
+
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl start '$service_name'"
     echo "$(color_green "✓ Started.")"
 }
@@ -195,7 +195,7 @@ stop() {
 
     local service_name="minecraft-${server_name}"
     echo "$(color_blue "Stopping $server_name...")"
-    
+
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl stop '$service_name'"
     echo "$(color_green "✓ Stopped.")"
 }
@@ -225,7 +225,7 @@ logs() {
 
 list_servers() {
     local remote_user_host="$1"
-    
+
     local config_dir
     config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
 
@@ -244,7 +244,7 @@ list_servers() {
 validate_config() {
     local remote_user_host="$1"
     local server_name="${2:-}"
-    
+
     local config_dir
     config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
 
