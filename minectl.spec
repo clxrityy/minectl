@@ -30,18 +30,20 @@ mkdir -p %{buildroot}%{_datadir}/doc/minectl
 mkdir -p %{buildroot}%{_sysconfdir}/skel/.minectl
 
 install -m 755 minectl %{buildroot}%{_bindir}/minectl
-# Patch the lib path for the installed location
-sed -i 's|LIB_DIR="$SCRIPT_DIR/lib"|LIB_DIR="%{_datadir}/minectl/lib"|' \
-    %{buildroot}%{_bindir}/minectl
-sed -i 's|"$SCRIPT_DIR/bootstrap/bootstrap.sh"|"%{_datadir}/minectl/bootstrap/bootstrap.sh"|' \
-    %{buildroot}%{_bindir}/minectl
-install -m 755 lib/config.sh %{buildroot}%{_datadir}/minectl/lib/config.sh
-install -m 755 bootstrap/bootstrap.sh %{buildroot}%{_datadir}/minectl/bootstrap/bootstrap.sh
+install -m 644 lib/config.sh %{buildroot}%{_datadir}/minectl/lib/config.sh
+install -m 644 bootstrap/bootstrap.sh %{buildroot}%{_datadir}/minectl/bootstrap/bootstrap.sh
 install -m 644 config.template %{buildroot}%{_sysconfdir}/skel/.minectl/config.template
 install -m 644 README.md %{buildroot}%{_datadir}/doc/minectl/README.md
 install -m 644 docs/configuration.md %{buildroot}%{_datadir}/doc/minectl/configuration.md
 install -m 644 docs/usage.md %{buildroot}%{_datadir}/doc/minectl/usage.md
 install -m 644 docs/architecture.md %{buildroot}%{_datadir}/doc/minectl/architecture.md
+
+sed -i \
+  's|LIB_DIR="$SCRIPT_DIR/lib"|LIB_DIR="%{_datadir}/minectl/lib"|' \
+  %{buildroot}%{_bindir}/minectl
+sed -i \
+  's|"$SCRIPT_DIR/bootstrap/bootstrap.sh"|"%{_datadir}/minectl/bootstrap/bootstrap.sh"|' \
+  %{buildroot}%{_bindir}/minectl
 
 %files
 %{_bindir}/minectl
@@ -54,21 +56,26 @@ install -m 644 docs/architecture.md %{buildroot}%{_datadir}/doc/minectl/architec
 %config(noreplace) %{_sysconfdir}/skel/.minectl/config.template
 
 %post
-echo "Run 'cp %{_sysconfdir}/skel/.minectl/config.template ~/.minectl/config' to set up your config."
+echo ""
+echo "minectl installed. Set up your config:"
+echo "  mkdir -p ~/.minectl"
+echo "  cp %{_sysconfdir}/skel/.minectl/config.template ~/.minectl/config"
+echo "  # Then edit CONFIG_DIR in ~/.minectl/config"
+echo ""
 
 %changelog
-* Fri Jan 17 2025 - 0.3.0-1
+* 0.3.0-1
 - Client-side CONFIG_DIR specification
 - Centralized server configuration
 - Multiple servers per host support
 - Systemd integration
 - Configuration validation
 
-* Fri Jan 10 2025 - 0.2.0-1
+* 0.2.0-1
 - Hierarchical configuration system
 - Per-server configuration files
 
-* Fri Jan 03 2025 - 0.1.0-1
+* 0.1.0-1
 - Initial release
 - Basic server deployment and management
 - Remote SSH deployment
