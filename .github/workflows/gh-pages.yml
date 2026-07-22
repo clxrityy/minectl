@@ -1,0 +1,38 @@
+name: Update GitHub Pages Static Files
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/pages/**"
+
+permissions:
+  contents: write
+
+jobs:
+  publish-static:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
+
+      - name: Copy static files
+        run: |
+          mkdir -p gh-pages
+
+          cp -r .github/pages/* gh-pages/
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: gh-pages
+          keep_files: true
