@@ -17,12 +17,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          dnf install -y rpmdevtools rpmlint git
+      - name: Install build dependencies
+        run: dnf install -y rpmdevtools rpmlint
 
-      - name: Setup rpmbuild tree
-        run: rpmdev-setuptree
+      # Use explicit mkdir rather than rpmdev-setuptree: in a container job
+      # the Actions runner overrides $HOME to its own path, so rpmdev-setuptree
+      # creates the tree somewhere other than /root/rpmbuild, which is where
+      # every other step in this job writes.
+      - name: Set up rpmbuild tree
+        run: mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
 
       - name: Extract version from tag
         id: version
@@ -33,19 +36,18 @@ jobs:
       - name: Create source tarball
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          cd /tmp
-          cp -r $GITHUB_WORKSPACE minectl-${VERSION}
-          tar czf /root/rpmbuild/SOURCES/minectl-${VERSION}.tar.gz \
-            --exclude=.git \
-            --exclude=.gitignore \
+          cp -r "$GITHUB_WORKSPACE" "/tmp/minectl-${VERSION}"
+          tar czf "/root/rpmbuild/SOURCES/minectl-${VERSION}.tar.gz" \
+            --exclude='.git' \
+            --exclude='.gitignore' \
+            --exclude='.github' \
             --exclude='.*.sw*' \
-            --exclude=.github \
-            minectl-${VERSION}/
+            -C /tmp \
+            "minectl-${VERSION}/"
 
       - name: Prepare spec file
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          # Stamp the version from the git tag into the spec before building
           sed "s/^Version:.*/Version:        ${VERSION}/" minectl.spec \
             > /root/rpmbuild/SPECS/minectl.spec
 
@@ -55,9 +57,76 @@ jobs:
       - name: Lint RPM
         run: rpmlint /root/rpmbuild/RPMS/noarch/*.rpm || true
 
-      - name: Upload RPM to GitHub Release
+      # Save the RPM so the publish-repo job can download it without
+      # needing a second build. retention-days: 1 keeps storage tidy.
+      - name: Save RPM as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package
+          path: /root/rpmbuild/RPMS/noarch/*.rpm
+          retention-days: 1
+
+      - name: Attach RPM to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             /root/rpmbuild/RPMS/noarch/*.rpm
             /root/rpmbuild/SRPMS/*.rpm
+
+  publish-repo:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch (for static page files)
+        uses: actions/checkout@v4
+
+      - name: Download RPM from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-package
+          path: /tmp/new-rpms/
+
+      - name: Install createrepo_c
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y createrepo-c
+
+      # Check out the existing gh-pages branch so we can carry forward
+      # previous RPMs. continue-on-error handles the first-ever run when
+      # the branch doesn't exist yet.
+      - name: Checkout existing gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
+
+      - name: Build DNF repo
+        run: |
+          mkdir -p /tmp/pages/repo
+
+          # Carry forward all previous RPMs (skips gracefully on first run)
+          if [[ -d gh-pages/repo ]]; then
+            cp gh-pages/repo/*.rpm /tmp/pages/repo/ 2>/dev/null || true
+          fi
+
+          # Add this release's RPM
+          cp /tmp/new-rpms/*.rpm /tmp/pages/repo/
+
+          # Regenerate repo metadata from the full set of RPMs
+          createrepo_c /tmp/pages/repo/
+
+          # Copy static files committed in .github/pages/
+          cp .github/pages/minectl.repo /tmp/pages/
+          cp .github/pages/install.sh   /tmp/pages/
+
+      # Deploys /tmp/pages to the gh-pages branch.
+      # keep_files: false is intentional — we've already merged the old
+      # RPMs in above, so the full /tmp/pages is the authoritative state.
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: /tmp/pages
+          keep_files: false
