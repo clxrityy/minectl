@@ -6,7 +6,6 @@ Summary:        Remote Minecraft server automation for Rocky Linux
 License:        GPL-3.0-only
 URL:            https://github.com/clxrityy/minectl
 Source0:        %{name}-%{version}.tar.gz
-
 BuildRequires:  bash
 Requires:       bash, openssh-clients, curl
 BuildArch:      noarch
@@ -64,18 +63,18 @@ echo "  # Then edit CONFIG_DIR in ~/.minectl/config"
 echo ""
 
 %changelog
-* 0.3.0-1
+* Tue Jul 21 2026 minectl <noreply@github.com> - 0.3.0-1
 - Client-side CONFIG_DIR specification
 - Centralized server configuration
 - Multiple servers per host support
 - Systemd integration
 - Configuration validation
 
-* 0.2.0-1
+* Mon Jul 20 2026 minectl <noreply@github.com> - 0.2.0-1
 - Hierarchical configuration system
 - Per-server configuration files
 
-* 0.1.0-1
+* Sun Jul 19 2026 minectl <noreply@github.com> - 0.1.0-1
 - Initial release
 - Basic server deployment and management
 - Remote SSH deployment
