@@ -17,7 +17,9 @@ sudo dnf install -y minectl
 Or use the installation script:
 
 ```bash
-curl -fsSL https://clxrityy.github.io/minectl/install.sh | bash
+curl -fsSLO https://clxrityy.github.io/minectl/install.sh
+chmod +x install.sh
+sudo ./install.sh
 ```
 
 ## Development
