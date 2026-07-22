@@ -13,8 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rockylinux:8
-      env:
-        HOME: /root
 
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +21,7 @@ jobs:
         run: dnf install -y rpmdevtools rpmlint
 
       - name: Set up rpmbuild tree
-        run: rpmdev-setuptree
+        run: mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
 
       - name: Extract version from tag
         id: version
@@ -50,7 +48,10 @@ jobs:
             > /root/rpmbuild/SPECS/minectl.spec
 
       - name: Build RPM
-        run: rpmbuild -ba /root/rpmbuild/SPECS/minectl.spec
+        run: |
+          rpmbuild \
+            --define "_topdir /root/rpmbuild" \
+            -ba /root/rpmbuild/SPECS/minectl.spec
 
       - name: Lint RPM
         run: rpmlint /root/rpmbuild/RPMS/noarch/*.rpm || true
@@ -88,9 +89,6 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y createrepo-c
 
-      # Check out the existing gh-pages branch so we can carry forward
-      # previous RPMs. continue-on-error handles the first-ever run when
-      # the branch doesn't exist yet.
       - name: Checkout existing gh-pages
         uses: actions/checkout@v4
         with:
@@ -117,9 +115,6 @@ jobs:
           cp .github/pages/minectl.repo /tmp/pages/
           cp .github/pages/install.sh   /tmp/pages/
 
-      # Deploys /tmp/pages to the gh-pages branch.
-      # keep_files: false is intentional — we've already merged the old
-      # RPMs in above, so the full /tmp/pages is the authoritative state.
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
