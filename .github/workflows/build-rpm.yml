@@ -5,29 +5,30 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: rockylinux:8.6
+      image: rockylinux:8
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           dnf install -y rpmdevtools rpmlint git
 
-      - name: Setup rpmbuild
-        run: |
-          mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+      - name: Setup rpmbuild tree
+        run: rpmdev-setuptree
 
-      - name: Extract version
+      - name: Extract version from tag
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
 
       - name: Create source tarball
         run: |
@@ -41,25 +42,22 @@ jobs:
             --exclude=.github \
             minectl-${VERSION}/
 
-      - name: Copy spec file
-        run: |
-          cp minectl.spec /root/rpmbuild/SPECS/
-
-      - name: Build RPM
+      - name: Prepare spec file
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          sed -i "s/^Version:.*/Version:        ${VERSION}/" /root/rpmbuild/SPECS/minectl.spec
-          rpmbuild -ba /root/rpmbuild/SPECS/minectl.spec
+          # Stamp the version from the git tag into the spec before building
+          sed "s/^Version:.*/Version:        ${VERSION}/" minectl.spec \
+            > /root/rpmbuild/SPECS/minectl.spec
 
-      - name: Check RPM
-        run: |
-          rpmlint /root/rpmbuild/RPMS/noarch/*.rpm || true
+      - name: Build RPM
+        run: rpmbuild -ba /root/rpmbuild/SPECS/minectl.spec
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Lint RPM
+        run: rpmlint /root/rpmbuild/RPMS/noarch/*.rpm || true
+
+      - name: Upload RPM to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             /root/rpmbuild/RPMS/noarch/*.rpm
             /root/rpmbuild/SRPMS/*.rpm
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
