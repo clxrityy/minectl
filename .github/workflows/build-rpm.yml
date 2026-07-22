@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rockylinux:8
+      env:
+        HOME: /root
 
     steps:
       - uses: actions/checkout@v4
@@ -20,12 +22,8 @@ jobs:
       - name: Install build dependencies
         run: dnf install -y rpmdevtools rpmlint
 
-      # Use explicit mkdir rather than rpmdev-setuptree: in a container job
-      # the Actions runner overrides $HOME to its own path, so rpmdev-setuptree
-      # creates the tree somewhere other than /root/rpmbuild, which is where
-      # every other step in this job writes.
       - name: Set up rpmbuild tree
-        run: mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+        run: rpmdev-setuptree
 
       - name: Extract version from tag
         id: version
@@ -57,8 +55,6 @@ jobs:
       - name: Lint RPM
         run: rpmlint /root/rpmbuild/RPMS/noarch/*.rpm || true
 
-      # Save the RPM so the publish-repo job can download it without
-      # needing a second build. retention-days: 1 keeps storage tidy.
       - name: Save RPM as workflow artifact
         uses: actions/upload-artifact@v4
         with:
