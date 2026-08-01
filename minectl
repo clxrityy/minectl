@@ -9,6 +9,7 @@ MINECTL_VERSION="0.3.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 
+# shellcheck disable=SC1091
 source "$LIB_DIR/config.sh"
 
 usage() {
@@ -58,8 +59,8 @@ init() {
     # Get client config
     local client_config="$HOME/.minectl/config"
     if [[ ! -f "$client_config" ]]; then
-        echo "$(color_red "✗ Client config not found: $client_config")"
-        echo "Create it: cp config.template ~/.minectl/config && edit CONFIG_DIR"
+        color_red "✗ Client config not found: $client_config"
+        color_yellow "Create it: cp config.template ~/.minectl/config && edit CONFIG_DIR"
         return 1
     fi
 
@@ -67,22 +68,25 @@ init() {
     local config_dir
     config_dir=$(grep "^CONFIG_DIR=" "$client_config" | cut -d= -f2)
     if [[ -z "$config_dir" ]]; then
-        echo "$(color_red "✗ CONFIG_DIR not set in $client_config")"
+        color_red "✗ CONFIG_DIR not set in $client_config"
         return 1
     fi
 
-    echo "$(color_blue "Initializing on $remote_user_host...")"
-    echo "Config directory: $config_dir"
-    echo ""
+    color_blue "Initializing on $remote_user_host..."
+    color_blue "Config directory: $config_dir"
+    echo ""  # Keep a blank line for readability
 
     # Create remote config directory
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "mkdir -p '$config_dir/servers' && chmod 755 '$config_dir'"
 
     # Create global config interactively
-    echo "$(color_yellow "Setting up global configuration...")"
+    color_yellow "Setting up global configuration..."
 
+    # shellcheck disable=SC2155
     local java_version=$(prompt_config_value "Java version" "17")
+    # shellcheck disable=SC2155
     local mc_user=$(prompt_config_value "Minecraft user" "minecraft")
+    # shellcheck disable=SC2155
     local mc_base_dir=$(prompt_config_value "Minecraft base directory" "/opt/minecraft")
 
     # Create global config
@@ -97,9 +101,9 @@ MC_BASE_DIR=$mc_base_dir
 EOFCONF
 "
 
-    echo "$(color_green "✓ Global config created.")"
+    color_green "✓ Global config created."
     echo ""
-    echo "$(color_blue "Next:")"
+    color_blue "Next:"
     echo "  minectl create-server $remote_user_host --server-name survival"
 }
 
@@ -113,11 +117,11 @@ create_server() {
 
     # Get config_dir from client config
     local config_dir
-    config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
+    config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
 
-    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+    [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
 
-    echo "$(color_blue "Creating server: $server_name")"
+    color_blue "Creating server: $server_name"
 
     # Load global config from remote
     declare -A global_config
@@ -128,10 +132,10 @@ create_server() {
         key="${key## }" key="${key%% }"
         value="${value## }" value="${value%% }"
         global_config["$key"]="$value"
-    done < <(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "cat '$config_dir/config' 2>/dev/null" || echo "")
+    done < <(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "cat '$config_dir/config' 2>/dev/null" || true)
 
     if [[ -z "${global_config[JAVA_VERSION]:-}" ]]; then
-        echo "$(color_red "✗ Global config not found. Run: minectl init $remote_user_host")"
+        color_red "✗ Global config not found. Run: minectl init $remote_user_host"
         exit 1
     fi
 
@@ -155,10 +159,10 @@ JAR_URL=$jar_url
 EOFCONF
 "
 
-    echo "$(color_green "✓ Server config created.")"
+    color_green "✓ Server config created."
 
     # Deploy server (bootstrap)
-    echo "Deploying server..."
+    color_blue "Deploying server..."
     scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
 
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "bash /tmp/minectl-bootstrap.sh \
@@ -170,41 +174,42 @@ EOFCONF
         --mc-user '$mc_user' \
         --mc-base-dir '$mc_base_dir'"
 
-    echo "$(color_green "✓ Server deployed.")"
-    echo "  minectl start $remote_user_host --server-name $server_name"
+    color_green "✓ Server deployed."
+    color_blue "Next:"
+    color_blue "  minectl start $remote_user_host --server-name $server_name"
 }
 
 start() {
     local remote_user_host="$1"
     local server_name="$2"
 
-    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+    [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
 
     local service_name="minecraft-${server_name}"
-    echo "$(color_blue "Starting $server_name...")"
+    color_blue "Starting $server_name..."
 
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl start '$service_name'"
-    echo "$(color_green "✓ Started.")"
+    color_green "✓ Started."
 }
 
 stop() {
     local remote_user_host="$1"
     local server_name="$2"
 
-    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+    [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
 
     local service_name="minecraft-${server_name}"
-    echo "$(color_blue "Stopping $server_name...")"
+    color_blue "Stopping $server_name..."
 
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl stop '$service_name'"
-    echo "$(color_green "✓ Stopped.")"
+    color_green "✓ Stopped."
 }
 
 status() {
     local remote_user_host="$1"
     local server_name="$2"
 
-    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+    [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
 
     local service_name="minecraft-${server_name}"
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl status '$service_name'"
@@ -215,7 +220,7 @@ logs() {
     local server_name="$2"
     local follow_flag=""
 
-    [[ -z "$server_name" ]] && { echo "$(color_red "✗ --server-name required")"; exit 1; }
+    [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
 
     [[ "${FOLLOW:-0}" == "1" ]] && follow_flag="-f"
 
@@ -227,9 +232,9 @@ list_servers() {
     local remote_user_host="$1"
 
     local config_dir
-    config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
+    config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
 
-    echo "$(color_blue "Servers on $remote_user_host:")"
+    color_blue "Servers on $remote_user_host:"
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "
         for conf in '$config_dir/servers'/*.conf 2>/dev/null; do
             [[ -f \$conf ]] || continue
@@ -246,22 +251,22 @@ validate_config() {
     local server_name="${2:-}"
 
     local config_dir
-    config_dir=$(get_config_dir) || { echo "$(color_red "✗ CONFIG_DIR error")"; exit 1; }
+    config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
 
     if [[ -n "$server_name" ]]; then
-        echo "$(color_blue "Validating $server_name...")"
+        color_blue "Validating $server_name..."
         if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "[[ -f '$config_dir/servers/$server_name.conf' ]]"; then
-            echo "$(color_green "✓ Valid.")"
+            color_green "✓ Valid."
         else
-            echo "$(color_red "✗ Not found.")"
+            color_red "✗ Not found."
             exit 1
         fi
     else
-        echo "$(color_blue "Validating global config...")"
+        color_blue "Validating global config..."
         if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "[[ -f '$config_dir/config' ]]"; then
-            echo "$(color_green "✓ Valid.")"
+            color_green "✓ Valid."
         else
-            echo "$(color_red "✗ Not found.")"
+            color_red "✗ Not found."
             exit 1
         fi
     fi
