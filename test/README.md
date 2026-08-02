@@ -2,6 +2,16 @@
 
 Local Docker development environment for testing minectl.
 
+- [Quick Start](#quick-start)
+- [Containers](#containers)
+- [Usage](#usage)
+- [File Structure](#file-structure)
+- [Cleanup](#cleanup)
+- [Troubleshooting](#troubleshooting)
+- [Multi-Server Testing](#multi-server-testing)
+
+---
+
 ## Quick Start
 
 **Automated setup (recommended):**
