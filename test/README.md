@@ -7,7 +7,7 @@ Local Docker development environment for testing minectl.
 **Automated setup (recommended):**
 
 ```bash
-cd dev
+cd test
 chmod +x test.sh
 ./test.sh
 ```
@@ -23,7 +23,7 @@ This automatically:
 **Manual setup:**
 
 ```bash
-cd dev
+cd test
 docker-compose up -d
 docker-compose exec client dnf install -y openssh-clients curl sshpass
 ```
@@ -89,7 +89,7 @@ sshpass -e minectl logs root@minectl-server1 --server-name survival
 ## File Structure
 
 ```bash
-dev/
+test/
 ├── Dockerfile           # Rocky Linux 8.6 client image
 ├── docker-compose.yml   # Multi-container setup
 ├── test.sh              # Automated setup and tests
