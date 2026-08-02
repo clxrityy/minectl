@@ -7,6 +7,10 @@ Remote Minecraft server automation for Rocky Linux. Deploy and manage multiple s
 >
 > - No stable release available yet
 > - **Recommended**: See [Development](dev/README.md) for local testing with Docker.
+>
+> ```bash
+> make docker-test
+> ```
 
 ## Quick Install
 
