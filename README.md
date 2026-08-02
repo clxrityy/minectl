@@ -1,12 +1,12 @@
 # minectl
 
-Remote Minecraft server automation for Rocky Linux. Deploy and manage multiple servers via centralized configuration.
+Remote Minecraft server automation for Rocky Linux (8+). Deploy and manage multiple servers via centralized configuration.
 
 > [!CAUTION]
 > **UNDER DEVELOPMENT**
 >
 > - No stable release available yet
-> - **Recommended**: See [Development](dev/README.md) for local testing with Docker.
+> - **Recommended**: See [Test](test/README.md) for local testing with Docker.
 >
 > ```bash
 > make docker-test
@@ -26,7 +26,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-## Development
+## Local Testing
 
 For local testing with Docker:
 
@@ -44,6 +44,9 @@ nano ~/.minectl/config
 
 # Initialize remote host
 minectl init user@10.0.0.5
+
+# Import existing server
+minectl import-server user@10.0.0.5 --server-name survival
 
 # Create a server
 minectl create-server user@10.0.0.5 --server-name survival --port 25565 --memory 4G
