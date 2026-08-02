@@ -18,14 +18,15 @@ get_config_dir() {
     local client_config="$HOME/.minectl/config"
     
     if [[ ! -f "$client_config" ]]; then
-        echo "$(color_red "✗ Client config not found: $client_config")"
+        color_red "✗ Client config not found: $client_config"
         return 1
     fi
     
+    # shellcheck disable=SC2155
     local config_dir=$(grep "^CONFIG_DIR=" "$client_config" | cut -d= -f2)
     
     if [[ -z "$config_dir" ]]; then
-        echo "$(color_red "✗ CONFIG_DIR not set in client config")"
+        color_red "✗ CONFIG_DIR not set in client config"
         return 1
     fi
     
@@ -45,6 +46,7 @@ load_config() {
         # Trim whitespace without xargs
         key="${key## }" key="${key%% }"
         value="${value## }" value="${value%% }"
+        # shellcheck disable=SC2034
         config_ref["$key"]="$value"
     done < "$config_file"
 }
@@ -64,7 +66,7 @@ validate_config() {
     done
 
     if [[ ${#missing[@]} -gt 0 ]]; then
-        echo "$(color_red "✗ Missing required config keys:")"
+        color_red "✗ Missing required config keys:"
         for key in "${missing[@]}"; do
             echo "  - $key"
         done
@@ -114,7 +116,7 @@ load_server_config() {
     local server_config_file="$config_dir/servers/$server_name.conf"
 
     if [[ ! -f "$server_config_file" ]]; then
-        echo "$(color_red "✗ Server config not found: $server_config_file")"
+        color_red "✗ Server config not found: $server_config_file"
         return 1
     fi
 
@@ -131,12 +133,13 @@ load_server_config() {
 # Usage: load_global_config <config_dir> <result_array>
 load_global_config() {
     local config_dir="$1"
+    # shellcheck disable=SC2034
     local -n result="$2"
 
     local global_config_file="$config_dir/config"
 
     if [[ ! -f "$global_config_file" ]]; then
-        echo "$(color_red "✗ Global config not found: $global_config_file")"
+        color_red "✗ Global config not found: $global_config_file"
         return 1
     fi
 
@@ -155,7 +158,7 @@ get_config_value() {
     local key="$2"
     
     if [[ -z "${config[$key]:-}" ]]; then
-        echo "$(color_red "✗ Config key not set: $key")"
+        color_red "✗ Config key not set: $key"
         return 1
     fi
     
@@ -172,7 +175,7 @@ prompt_config_value() {
         prompt_text="$key [$default]"
     fi
 
-    read -p "$(color_blue "? $prompt_text: ")" value
+    read -r -p "$(color_blue "? $prompt_text: ")" value
     echo "${value:-$default}"
 }
 
@@ -182,16 +185,19 @@ list_servers_from_config() {
     local servers_dir="$config_dir/servers"
 
     if [[ ! -d "$servers_dir" ]]; then
-        echo "$(color_yellow "No servers configured.")"
+        color_yellow "No servers configured."
         return 0
     fi
 
-    echo "$(color_green "Configured servers:")"
+    color_green "Configured servers:"
     for server_conf in "$servers_dir"/*.conf; do
         [[ -f "$server_conf" ]] || continue
         
+        # shellcheck disable=SC2155
         local server_name=$(basename "$server_conf" .conf)
+        # shellcheck disable=SC2155
         local enabled=$(grep "^ENABLED=" "$server_conf" | cut -d= -f2 || echo "unknown")
+        # shellcheck disable=SC2155
         local port=$(grep "^PORT=" "$server_conf" | cut -d= -f2 || echo "unknown")
         
         if [[ "$enabled" == "true" ]]; then
