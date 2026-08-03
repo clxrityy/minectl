@@ -54,13 +54,13 @@ sed -i \
 %doc %{_datadir}/doc/minectl/configuration.md
 %doc %{_datadir}/doc/minectl/usage.md
 %doc %{_datadir}/doc/minectl/architecture.md
-%config(noreplace) %{_sysconfdir}/skel/.minectl/client.config.template
+%config(noreplace) %{_sysconfdir}/skel/.minectl/config.template
 
 %post
 echo ""
 echo "minectl installed. Set up your config:"
 echo "  mkdir -p ~/.minectl"
-echo "  cp %{_sysconfdir}/skel/.minectl/client.config.template ~/.minectl/config"
+echo "  cp %{_sysconfdir}/skel/.minectl/config.template ~/.minectl/config"
 echo "  # Then edit CONFIG_DIR in ~/.minectl/config"
 echo ""
 
