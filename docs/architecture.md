@@ -16,11 +16,11 @@ Located on the remote host at path specified by `CONFIG_DIR` in `~/.minectl/conf
 
 ```conf
 $CONFIG_DIR/
-├── config                    # Global settings (JAVA_VERSION, MC_USER, MC_BASE_DIR)
+├── config                    # Global settings (MC_USER, MC_BASE_DIR)
 └── servers/
-    ├── survival.conf         # Server configs (ENABLED, PORT, MEMORY, JAR_URL)
-    ├── creative.conf
-    └── minigames.conf
+    ├── survival.conf         # Managed server config
+    ├── earth-1.conf          # Imported server config
+    └── creative.conf         # Managed server config
 ```
 
 The SSH user IS the directory owner — configs stored in their home or accessible directory.
@@ -55,30 +55,70 @@ Each server gets a systemd service named `minecraft-SERVER_NAME`:
 
 VPN not required after deployment — servers persist across reboots via systemd.
 
+## Imported Server Runtime
+
+Imported servers keep their existing files under `$MC_BASE_DIR/SERVER_NAME`.
+
+`minectl import-server` does **not** replace:
+
+- the server JAR
+- `server.properties`
+- `eula.txt`
+- worlds
+- plugins
+- existing log files
+
+Instead, `minectl` creates a systemd service and launcher that read the following keys from `jvm.properties`:
+
+- `server_jar`
+- `jvm_memory_max`
+- `jvm_memory_min`
+- `jvm_flags`
+
+This allows an imported server to keep its existing launch configuration while still being managed through `minectl`.
+
+## Logging
+
+For log retrieval, `minectl logs` prefers:
+
+```conf
+$MC_BASE_DIR/SERVER_NAME/logs/latest.log
+```
+
+If no readable file log is available, it falls back to the server’s systemd journal.
+
 ## Deployment Flow
 
 1. **Client setup**: Create `~/.minectl/config` with `CONFIG_DIR`
-2. **Init**: `minectl init user@host` creates `$CONFIG_DIR/config` with global settings
-3. **Create**: `minectl create-server user@host --server-name NAME` writes server config and runs bootstrap
-4. **Bootstrap**: Installs Java, creates directories, downloads JAR, creates systemd service
-5. **Manage**: `minectl start/stop/logs` controls servers via systemd
+2. **Init**: `minectl init user@host` creates `$CONFIG_DIR/config` with base host settings
+3. **Create**: `minectl create-server user@host --server-name NAME` writes server config and provisions a new server
+4. **Import**: `minectl import-server user@host --server-name NAME` adopts an existing server directory without overwriting its files
+5. **Manage**: `minectl start`, `stop`, `status`, and `logs` operate through systemd
 
 ## Configuration Files
 
 **Global Config** (`$CONFIG_DIR/config`):
 
-- `JAVA_VERSION`: Java version to install
 - `MC_USER`: Unix user running servers
 - `MC_BASE_DIR`: Base directory for all servers
 
-**Per-Server Config** (`$CONFIG_DIR/servers/SERVER_NAME.conf`):
+**Managed Server Config** (`$CONFIG_DIR/servers/SERVER_NAME.conf`):
 
 - `ENABLED`: true/false
 - `PORT`: Server port
 - `MEMORY`: JVM memory (e.g., 4G)
 - `JAR_URL`: URL to server JAR
 
-All keys are required. Validation fails if any key is missing.
+**Imported Server Config** (`$CONFIG_DIR/servers/SERVER_NAME.conf`):
+
+- `ENABLED`: true/false
+- `IMPORTED=true`
+- `JAVA_BIN`: Remote Java executable path
+
+> [!NOTE]
+> For newly created servers, Java version is selected during `create-server` provisioning. For imported servers, runtime settings come from the server's own `jvm.properties`, and minectl stores the resolved Java executable path in the per-server config.
+
+Managed and imported servers have different required config keys. Managed servers require `PORT`, `MEMORY`, and `JAR_URL`; imported servers require `IMPORTED=true` and `JAVA_BIN`.
 
 ## Client Config
 
