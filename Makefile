@@ -4,6 +4,9 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = "##"}; {printf "  %-20s %s\n", $$1, $$2}'
 
+version: ## Interactively update the project version and changelog
+	@python3 ./scripts/version-bump.py
+
 colima-start: ## Start Colima for the test environment
 	@colima start --cpu 4 --memory 8 --disk 40 --runtime docker
 	@docker context use colima
