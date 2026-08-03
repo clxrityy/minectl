@@ -8,7 +8,7 @@ Users can install minectl directly via DNF from GitHub Releases.
 
 ```bash
 # Install latest release directly
-sudo dnf install -y https://github.com/clxrityy/minectl/releases/download/v0.4.0/minectl-0.4.0-1.el8.noarch.rpm
+sudo dnf install -y https://github.com/clxrityy/minectl/releases/download/v0.3.0/minectl-0.4.0-1.el8.noarch.rpm
 ```
 
 Or use the install script from GitHub:
@@ -71,7 +71,7 @@ scp -r repo/ user@server:/var/www/minectl/
 
 ## Building and Publishing
 
-1. **Tag release**: `git tag v0.4.0 && git push --tags`
+1. **Tag release**: `git tag v0.3.0 && git push --tags`
 2. **GitHub Actions builds** and uploads to Releases automatically
 3. **Download RPM** from GitHub Releases
 4. **Add to repo**: `cp minectl-0.4.0-1.el8.noarch.rpm repo/Packages/`

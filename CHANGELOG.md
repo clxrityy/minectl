@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+### Release Notes
+
+- Added import-server command
+- Added the ability to customize and/or fetch Java bin
+- Test/dev environment now tests every feature & command extensively
 ## 0.3.0
 
 ### Added

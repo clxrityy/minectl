@@ -1,5 +1,5 @@
 Name:           minectl
-Version:        0.3.0
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Remote Minecraft server automation for Rocky Linux
 
@@ -63,6 +63,11 @@ echo "  # Then edit CONFIG_DIR in ~/.minectl/config"
 echo ""
 
 %changelog
+* Mon Aug 03 2026 minectl <noreply@github.com> - 0.4.0-1
+- Added import-server command
+- Added the ability to customize and/or fetch Java bin
+- Test/dev environment now tests every feature & command extensively
+
 * Tue Jul 21 2026 minectl <noreply@github.com> - 0.3.0-1
 - Client-side CONFIG_DIR specification
 - Centralized server configuration

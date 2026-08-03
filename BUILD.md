@@ -31,25 +31,25 @@ dnf install -y rpmdevtools rpmlint
 mkdir -p ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
 
 # Create source tarball
-tar czf ~/rpmbuild/SOURCES/minectl-0.3.0.tar.gz \
+tar czf ~/rpmbuild/SOURCES/minectl-0.4.0.tar.gz \
     --exclude=.git \
     --exclude=.gitignore \
     --exclude='.*.sw*' \
     --exclude=.github \
     --exclude=dev \
-    --transform='s,^,minectl-0.3.0/,' \
+    --transform='s,^,minectl-0.4.0/,' \
     .
 
 # Build RPM
 rpmbuild -ba minectl.spec
 
-# Result: ~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc39.noarch.rpm
+# Result: ~/rpmbuild/RPMS/noarch/minectl-0.4.0-1.fc39.noarch.rpm
 ```
 
 ## Install Locally
 
 ```bash
-sudo dnf install -y ~/rpmbuild/RPMS/noarch/minectl-0.3.0-1.fc39.noarch.rpm
+sudo dnf install -y ~/rpmbuild/RPMS/noarch/minectl-0.4.0-1.fc39.noarch.rpm
 minectl version
 ```
 
