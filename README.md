@@ -2,15 +2,22 @@
 
 Remote Minecraft server automation for Rocky Linux (8+). Deploy and manage multiple servers via centralized configuration.
 
-> [!CAUTION]
-> **UNDER DEVELOPMENT**
+> [!TIP]
 >
-> - No stable release available yet
-> - **Recommended**: See [Test](test/README.md) for local testing with Docker.
+> See [/test](test/README.md) for local testing with [Docker](https://www.docker.com/).
 >
 > ```bash
-> make docker-test
+> make test
 > ```
+
+- [Quick Install](#quick-install)
+- [Local Testing](#local-testing)
+- [Setup](#setup)
+- [Documentation](#documentation)
+- [Requirements](#requirements)
+- [License](#license)
+
+---
 
 ## Quick Install
 
@@ -28,11 +35,20 @@ sudo ./install.sh
 
 ## Local Testing
 
-For local testing with Docker:
+For local testing on macOS, start Colima first:
 
 ```bash
-cd dev
+colima start --cpu 4 --memory 8 --disk 40 --runtime docker
+docker context use colima
+cd test
 ./test.sh
+```
+
+Or, use the Makefile:
+
+```bash
+make colima-start
+make test
 ```
 
 ## Setup
@@ -46,7 +62,7 @@ nano ~/.minectl/config
 minectl init user@10.0.0.5
 
 # Import existing server
-minectl import-server user@10.0.0.5 --server-name survival
+minectl import-server user@10.0.0.5 --server-name earth-1
 
 # Create a server
 minectl create-server user@10.0.0.5 --server-name survival --port 25565 --memory 4G
@@ -57,6 +73,8 @@ minectl list user@10.0.0.5
 minectl logs user@10.0.0.5 --server-name survival --follow
 ```
 
+For imported servers, `minectl logs` reads `logs/latest.log` when available and falls back to the systemd journal otherwise.
+
 ## Documentation
 
 - [Configuration](docs/configuration.md) — Config structure
@@ -64,7 +82,7 @@ minectl logs user@10.0.0.5 --server-name survival --follow
 - [Architecture](docs/architecture.md) — Design overview
 - [Building](BUILD.md) — Build RPM locally or via GitHub Actions
 - [Repository](REPO.md) — Setup DNF repository
-- [Development](dev/README.md) — Docker dev environment
+- [Test](test/README.md) — Docker test environment
 - [Changelog](CHANGELOG.md) — Version history
 
 ## Requirements
