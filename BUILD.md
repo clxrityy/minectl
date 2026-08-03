@@ -77,5 +77,9 @@ Version is defined in:
 1. `minectl.spec` — RPM version
 2. `minectl` CLI — `MINECTL_VERSION` variable
 3. GitHub tag — `v0.3.0` format
+4. `build-rpm.sh` — local build version helper
+5. `CHANGELOG.md` and `minectl.spec` `%changelog` — release notes
 
 Keep these in sync.
+
+Use `make version` to update the versioned files and release notes together.
