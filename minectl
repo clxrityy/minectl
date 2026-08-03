@@ -163,7 +163,7 @@ init() {
     local client_config="$HOME/.minectl/config"
     if [[ ! -f "$client_config" ]]; then
         color_red "✗ Client config not found: $client_config"
-        color_yellow "Create it: cp config.template ~/.minectl/config && edit CONFIG_DIR"
+        color_yellow "Create it: cp client.config.template ~/.minectl/config && edit CONFIG_DIR"
         return 1
     fi
 

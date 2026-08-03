@@ -31,7 +31,9 @@ mkdir -p %{buildroot}%{_sysconfdir}/skel/.minectl
 install -m 755 minectl %{buildroot}%{_bindir}/minectl
 install -m 644 lib/config.sh %{buildroot}%{_datadir}/minectl/lib/config.sh
 install -m 644 bootstrap/bootstrap.sh %{buildroot}%{_datadir}/minectl/bootstrap/bootstrap.sh
-install -m 644 config.template %{buildroot}%{_sysconfdir}/skel/.minectl/config.template
+template_file=client.config.template
+[[ -f "$template_file" ]] || template_file=config.template
+install -m 644 "$template_file" %{buildroot}%{_sysconfdir}/skel/.minectl/config.template
 install -m 644 README.md %{buildroot}%{_datadir}/doc/minectl/README.md
 install -m 644 docs/configuration.md %{buildroot}%{_datadir}/doc/minectl/configuration.md
 install -m 644 docs/usage.md %{buildroot}%{_datadir}/doc/minectl/usage.md
@@ -52,13 +54,13 @@ sed -i \
 %doc %{_datadir}/doc/minectl/configuration.md
 %doc %{_datadir}/doc/minectl/usage.md
 %doc %{_datadir}/doc/minectl/architecture.md
-%config(noreplace) %{_sysconfdir}/skel/.minectl/config.template
+%config(noreplace) %{_sysconfdir}/skel/.minectl/client.config.template
 
 %post
 echo ""
 echo "minectl installed. Set up your config:"
 echo "  mkdir -p ~/.minectl"
-echo "  cp %{_sysconfdir}/skel/.minectl/config.template ~/.minectl/config"
+echo "  cp %{_sysconfdir}/skel/.minectl/client.config.template ~/.minectl/config"
 echo "  # Then edit CONFIG_DIR in ~/.minectl/config"
 echo ""
 
