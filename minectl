@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # minectl — remote Minecraft server automation CLI
+# ----- https://github.com/clxrityy/minectl ------
 # Config directory specified in ~/.minectl/config (CONFIG_DIR)
 
 set -euo pipefail
@@ -17,15 +18,16 @@ usage() {
 minectl v0.3.0 — remote Minecraft server automation
 
 Usage:
-  minectl init <user@host>
-  minectl create-server <user@host> --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL]
-  minectl start <user@host> --server-name NAME
-  minectl stop <user@host> --server-name NAME
-  minectl status <user@host> --server-name NAME
-  minectl logs <user@host> --server-name NAME [--follow]
-  minectl list <user@host>
-  minectl validate <user@host> [--server-name NAME]
-  minectl version
+    minectl init <user@host>
+    minectl import-server <user@host> --server-name NAME [--java-bin PATH]
+    minectl create-server <user@host> --server-name NAME [--port PORT] [--memory MEMORY] [--jar JAR_URL] [--java-version VERSION]
+    minectl start <user@host> --server-name NAME
+    minectl stop <user@host> --server-name NAME
+    minectl status <user@host> --server-name NAME
+    minectl logs <user@host> --server-name NAME [--follow]
+    minectl list <user@host>
+    minectl validate <user@host> [--server-name NAME]
+    minectl version
 
 See docs/ for full documentation.
 
@@ -42,14 +44,115 @@ version() {
 ssh_cmd() {
     local remote="$1"
     local cmd="$2"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "$cmd"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$remote" "$cmd"
 }
 
 # SCP wrapper
 scp_cmd() {
     local src="$1"
     local dst="$2"
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q "$src" "$dst"
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -q "$src" "$dst"
+}
+
+# Trim quotes from a string in jvm.properties format
+trim_quotes() {
+    local value="$1"
+    value="${value#\"}"
+    value="${value%\"}"
+    echo "$value"
+}
+
+# Read a property from a jvm.properties file on a remote host
+read_jvm_property_remote() {
+    local remote_user_host="$1"
+    local file_path="$2"
+    local key="$3"
+
+    ssh_cmd "$remote_user_host" "
+        awk -F= '
+            /^[[:space:]]*#/ { next }
+            \$1 ~ /^[[:space:]]*${key}[[:space:]]*$/ {
+                sub(/^[[:space:]]+/, \"\", \$2)
+                sub(/[[:space:]]+$/, \"\", \$2)
+                print \$2
+                exit
+            }
+        ' '$file_path'
+    " 2>/dev/null || true
+}
+
+# Check if a remote file exists
+remote_file_exists() {
+    local remote_user_host="$1"
+    local path="$2"
+    ssh_cmd "$remote_user_host" "[[ -f '$path' ]]" >/dev/null 2>&1
+}
+
+# Check if a remote directory exists
+remote_dir_exists() {
+    local remote_user_host="$1"
+    local path="$2"
+    ssh_cmd "$remote_user_host" "[[ -d '$path' ]]" >/dev/null 2>&1
+}
+
+load_remote_config_into_array() {
+    local remote_user_host="$1"
+    local remote_path="$2"
+    local -n result="$3"
+
+    local config_text
+    config_text=$(ssh_cmd "$remote_user_host" "cat '$remote_path' 2>/dev/null" || true)
+
+    [[ -z "$config_text" ]] && return 1
+
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^#.*$ ]] && continue
+        [[ -z "$key" ]] && continue
+        key="${key## }"; key="${key%% }"
+        value="${value## }"; value="${value%% }"
+        # shellcheck disable=SC2034
+        result["$key"]="$value"
+    done <<< "$config_text"
+
+    return 0
+}
+
+# Resolve the Java executable on a remote host, either from provided path or by discovery
+resolve_java_bin() {
+    local remote_user_host="$1"
+    local provided_java_bin="${2:-}"
+
+    if [[ -n "$provided_java_bin" ]]; then
+        if ssh_cmd "$remote_user_host" "[[ -x '$provided_java_bin' ]]" >/dev/null 2>&1; then
+            echo "$provided_java_bin"
+            return 0
+        fi
+        color_red "✗ Provided Java executable is not valid: $provided_java_bin"
+        return 1
+    fi
+
+    local discovered
+    discovered=$(ssh_cmd "$remote_user_host" "command -v java" 2>/dev/null || true)
+
+    if [[ -n "$discovered" ]]; then
+        echo "$discovered"
+        return 0
+    fi
+
+    color_yellow "Java executable not found automatically on $remote_user_host."
+    read -r -p "Enter remote Java executable path: " discovered
+
+    if [[ -z "$discovered" ]]; then
+        color_red "✗ Java executable path is required."
+        return 1
+    fi
+
+    if ! ssh_cmd "$remote_user_host" "[[ -x '$discovered' ]]" >/dev/null 2>&1; then
+        color_red "✗ Remote Java executable is not executable: $discovered"
+        return 1
+    fi
+
+    echo "$discovered"
 }
 
 # Initialize config on remote host (interactive)
@@ -80,10 +183,8 @@ init() {
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "mkdir -p '$config_dir/servers' && chmod 755 '$config_dir'"
 
     # Create global config interactively
-    color_yellow "Setting up global configuration..."
+    color_yellow "Setting up base configuration..."
 
-    # shellcheck disable=SC2155
-    local java_version=$(prompt_config_value "Java version" "17")
     # shellcheck disable=SC2155
     local mc_user=$(prompt_config_value "Minecraft user" "minecraft")
     # shellcheck disable=SC2155
@@ -94,7 +195,6 @@ init() {
 # minectl global configuration
 # Generated: $(date)
 
-JAVA_VERSION=$java_version
 MC_USER=$mc_user
 MC_BASE_DIR=$mc_base_dir
 
@@ -124,22 +224,18 @@ create_server() {
     color_blue "Creating server: $server_name"
 
     # Load global config from remote
-    declare -A global_config
-    while IFS='=' read -r key value; do
-        [[ "$key" =~ ^#.*$ ]] && continue
-        [[ -z "$key" ]] && continue
-        # Trim whitespace from key and value
-        key="${key## }" key="${key%% }"
-        value="${value## }" value="${value%% }"
-        global_config["$key"]="$value"
-    done < <(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "cat '$config_dir/config' 2>/dev/null" || true)
-
-    if [[ -z "${global_config[JAVA_VERSION]:-}" ]]; then
+    declare -A global_config=()
+    if ! load_remote_config_into_array "$remote_user_host" "$config_dir/config" global_config; then
         color_red "✗ Global config not found. Run: minectl init $remote_user_host"
         exit 1
     fi
 
-    local java_version="${global_config[JAVA_VERSION]}"
+    if [[ -z "${global_config[MC_USER]:-}" || -z "${global_config[MC_BASE_DIR]:-}" ]]; then
+        color_red "✗ Global config not found or incomplete. Run: minectl init $remote_user_host"
+        exit 1
+    fi
+
+    local java_version="${JAVA_VERSION:-17}"
     local mc_user="${global_config[MC_USER]}"
     local mc_base_dir="${global_config[MC_BASE_DIR]}"
 
@@ -179,6 +275,73 @@ EOFCONF
     color_blue "  minectl start $remote_user_host --server-name $server_name"
 }
 
+# Import existing server
+import_server() {
+    local remote_user_host="$1"
+    local server_name="$2"
+    local provided_java_bin="${3:-}"
+
+    [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
+
+    local config_dir
+    config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
+
+    declare -A global_config=()
+    if ! load_remote_config_into_array "$remote_user_host" "$config_dir/config" global_config; then
+        color_red "✗ Global config not found. Run: minectl init $remote_user_host"
+        exit 1
+    fi
+
+    if [[ -z "${global_config[MC_USER]:-}" || -z "${global_config[MC_BASE_DIR]:-}" ]]; then
+        color_red "✗ Global config not found or incomplete. Run: minectl init $remote_user_host"
+        exit 1
+    fi
+
+    local mc_base_dir="${global_config[MC_BASE_DIR]}"
+    local mc_user="${global_config[MC_USER]}"
+    local server_dir="$mc_base_dir/$server_name"
+    local jvm_props="$server_dir/jvm.properties"
+    local server_config="$config_dir/servers/$server_name.conf"
+
+    remote_dir_exists "$remote_user_host" "$server_dir" || {
+        color_red "✗ Existing server directory not found: $server_dir"
+        exit 1
+    }
+
+    remote_file_exists "$remote_user_host" "$jvm_props" || {
+        color_red "✗ jvm.properties not found: $jvm_props"
+        exit 1
+    }
+
+    if ssh_cmd "$remote_user_host" "[[ -f '$server_config' ]]" >/dev/null 2>&1; then
+        color_red "✗ Server config already exists: $server_config"
+        exit 1
+    fi
+
+    local java_bin
+    java_bin=$(resolve_java_bin "$remote_user_host" "$provided_java_bin") || exit 1
+
+    ssh_cmd "$remote_user_host" "cat > '$server_config' <<EOFCONF
+# minectl imported server: $server_name
+ENABLED=true
+IMPORTED=true
+JAVA_BIN=$java_bin
+EOFCONF
+"
+
+    color_blue "Importing existing server service..."
+    scp_cmd "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$remote_user_host:/tmp/minectl-bootstrap.sh"
+
+    ssh_cmd "$remote_user_host" "bash /tmp/minectl-bootstrap.sh \
+        --import-existing true \
+        --server-name '$server_name' \
+        --mc-user '$mc_user' \
+        --mc-base-dir '$mc_base_dir' \
+        --java-bin '$java_bin'"
+
+    color_green "✓ Existing server imported."
+}
+
 start() {
     local remote_user_host="$1"
     local server_name="$2"
@@ -188,7 +351,7 @@ start() {
     local service_name="minecraft-${server_name}"
     color_blue "Starting $server_name..."
 
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl start '$service_name'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$remote_user_host" "sudo systemctl start '$service_name'"
     color_green "✓ Started."
 }
 
@@ -201,7 +364,7 @@ stop() {
     local service_name="minecraft-${server_name}"
     color_blue "Stopping $server_name..."
 
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl stop '$service_name'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$remote_user_host" "sudo systemctl stop '$service_name'"
     color_green "✓ Stopped."
 }
 
@@ -212,7 +375,7 @@ status() {
     [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
 
     local service_name="minecraft-${server_name}"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo systemctl status '$service_name'"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$remote_user_host" "sudo systemctl status '$service_name'"
 }
 
 logs() {
@@ -221,11 +384,39 @@ logs() {
     local follow_flag=""
 
     [[ -z "$server_name" ]] && { color_red "✗ --server-name required"; exit 1; }
+    [[ "${FOLLOW:-0}" == "1" ]] && follow_flag="1"
 
-    [[ "${FOLLOW:-0}" == "1" ]] && follow_flag="-f"
+    local config_dir
+    config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
 
+    declare -A global_config=()
+    if ! load_remote_config_into_array "$remote_user_host" "$config_dir/config" global_config; then
+        color_red "✗ Global config not found. Run: minectl init $remote_user_host"
+        exit 1
+    fi
+
+    local mc_base_dir="${global_config[MC_BASE_DIR]:-}"
+    [[ -z "$mc_base_dir" ]] && { color_red "✗ MC_BASE_DIR missing from global config"; exit 1; }
+
+    local latest_log="$mc_base_dir/$server_name/logs/latest.log"
     local service_name="minecraft-${server_name}"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "sudo journalctl -u '$service_name' -n 50 $follow_flag"
+
+    if ssh_cmd "$remote_user_host" "[[ -r '$latest_log' ]]" >/dev/null 2>&1; then
+        color_blue "Reading file logs: $latest_log"
+        if [[ "$follow_flag" == "1" ]]; then
+            ssh_cmd "$remote_user_host" "tail -n 50 -F '$latest_log'"
+        else
+            ssh_cmd "$remote_user_host" "tail -n 50 '$latest_log'"
+        fi
+        return
+    fi
+
+    color_yellow "File log not available, falling back to journalctl."
+    if [[ "$follow_flag" == "1" ]]; then
+        ssh_cmd "$remote_user_host" "sudo journalctl -u '$service_name' -n 50 -f"
+    else
+        ssh_cmd "$remote_user_host" "sudo journalctl -u '$service_name' -n 50"
+    fi
 }
 
 list_servers() {
@@ -235,18 +426,37 @@ list_servers() {
     config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
 
     color_blue "Servers on $remote_user_host:"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "
-        for conf in '$config_dir/servers'/*.conf 2>/dev/null; do
+    ssh_cmd "$remote_user_host" "
+        shopt -s nullglob
+        for conf in '$config_dir/servers'/*.conf; do
             [[ -f \$conf ]] || continue
-            name=\$(basename \$conf .conf)
-            enabled=\$(grep '^ENABLED=' \$conf | cut -d= -f2 || echo '?')
-            port=\$(grep '^PORT=' \$conf | cut -d= -f2 || echo '?')
-            [[ \"\$enabled\" == \"true\" ]] && echo \"  \u2713 \$name (port \$port)\" || echo \"  \u2717 \$name (port \$port, disabled)\"
+
+            name=\$(basename \"\$conf\" .conf)
+            enabled=\$(grep '^ENABLED=' \"\$conf\" | cut -d= -f2 || true)
+            imported=\$(grep '^IMPORTED=' \"\$conf\" | cut -d= -f2 || true)
+            port=\$(grep '^PORT=' \"\$conf\" | cut -d= -f2 || true)
+
+            [[ -z \"\$enabled\" ]] && enabled='?'
+
+            if [[ \"\$imported\" == 'true' ]]; then
+                if [[ \"\$enabled\" == 'true' ]]; then
+                    echo \"  ✓ \$name (imported)\"
+                else
+                    echo \"  ✗ \$name (imported, disabled)\"
+                fi
+            else
+                [[ -z \"\$port\" ]] && port='?'
+                if [[ \"\$enabled\" == 'true' ]]; then
+                    echo \"  ✓ \$name (port \$port)\"
+                else
+                    echo \"  ✗ \$name (port \$port, disabled)\"
+                fi
+            fi
         done
     "
 }
 
-validate_config() {
+validate_remote_config() {
     local remote_user_host="$1"
     local server_name="${2:-}"
 
@@ -254,19 +464,35 @@ validate_config() {
     config_dir=$(get_config_dir) || { color_red "✗ CONFIG_DIR error"; exit 1; }
 
     if [[ -n "$server_name" ]]; then
-        color_blue "Validating $server_name..."
-        if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "[[ -f '$config_dir/servers/$server_name.conf' ]]"; then
-            color_green "✓ Valid."
+        color_blue "Validating server config: $server_name"
+
+        local remote_server_config="$config_dir/servers/$server_name.conf"
+        declare -A server_config=()
+
+        if ! load_remote_config_into_array "$remote_user_host" "$remote_server_config" server_config; then
+            color_red "✗ Server config not found: $remote_server_config"
+            exit 1
+        fi
+
+        if validate_server_config server_config; then
+            color_green "✓ Server config valid."
         else
-            color_red "✗ Not found."
             exit 1
         fi
     else
         color_blue "Validating global config..."
-        if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote_user_host" "[[ -f '$config_dir/config' ]]"; then
-            color_green "✓ Valid."
+
+        local remote_global_config="$config_dir/config"
+        declare -A global_config=()
+
+        if ! load_remote_config_into_array "$remote_user_host" "$remote_global_config" global_config; then
+            color_red "✗ Global config not found: $remote_global_config"
+            exit 1
+        fi
+
+        if validate_global_config global_config; then
+            color_green "✓ Global config valid."
         else
-            color_red "✗ Not found."
             exit 1
         fi
     fi
@@ -288,16 +514,33 @@ case "$COMMAND" in
         REMOTE="$1"
         shift
         SERVER_NAME=""
+        JAVA_VERSION=""
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --server-name) SERVER_NAME="$2"; shift 2 ;;
                 --port) PORT="$2"; shift 2 ;;
                 --memory) MEMORY="$2"; shift 2 ;;
                 --jar) JAR_URL="$2"; shift 2 ;;
+                --java-version) JAVA_VERSION="$2"; shift 2 ;;
                 *) shift ;;
             esac
         done
         create_server "$REMOTE" "$SERVER_NAME"
+        ;;
+    import-server)
+        [[ $# -lt 1 ]] && usage
+        REMOTE="$1"
+        shift
+        SERVER_NAME=""
+        JAVA_BIN=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --server-name) SERVER_NAME="$2"; shift 2 ;;
+                --java-bin) JAVA_BIN="$2"; shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        import_server "$REMOTE" "$SERVER_NAME" "$JAVA_BIN"
         ;;
     start)
         [[ $# -lt 1 ]] && usage
@@ -367,7 +610,7 @@ case "$COMMAND" in
                 *) shift ;;
             esac
         done
-        validate_config "$REMOTE" "$SERVER_NAME"
+        validate_remote_config "$REMOTE" "$SERVER_NAME"
         ;;
     version)
         version
