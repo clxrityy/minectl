@@ -52,15 +52,16 @@ load_config() {
 }
 
 # Validate required config keys
-# Usage: validate_config <config_array> <required_keys...>
-validate_config() {
-    local -n config="$1"
+# Usage: validate_required_keys <config_array> <required_keys...>
+validate_required_keys() {
+    local -n cfg_ref="$1"
     shift
     local -a required=("$@")
     local missing=()
+    local key
 
     for key in "${required[@]}"; do
-        if [[ -z "${config[$key]:-}" ]]; then
+        if [[ -z "${cfg_ref[$key]:-}" ]]; then
             missing+=("$key")
         fi
     done
@@ -79,31 +80,41 @@ validate_config() {
 # Validate server config
 # Usage: validate_server_config <config_array>
 validate_server_config() {
-    local -n config="$1"
-    
-    local required=(
+    local -n server_cfg="$1"
+
+    local required_common=(
         "ENABLED"
-        "PORT"
-        "MEMORY"
-        "JAR_URL"
     )
 
-    validate_config config "${required[@]}"
+    validate_required_keys "$1" "${required_common[@]}" || return 1
+
+    if [[ "${server_cfg[IMPORTED]:-false}" == "true" ]]; then
+        local required_imported=(
+            "JAVA_BIN"
+        )
+        validate_required_keys "$1" "${required_imported[@]}" || return 1
+    else
+        local required_managed=(
+            "PORT"
+            "MEMORY"
+            "JAR_URL"
+        )
+        validate_required_keys "$1" "${required_managed[@]}" || return 1
+    fi
 }
 
 # Validate global config
 # Usage: validate_global_config <config_array>
 validate_global_config() {
-    local -n config="$1"
-    
+    # shellcheck disable=SC2034
+    local -n global_cfg="$1"
+
     local required=(
-        "JAVA_VERSION"
         "MC_USER"
         "MC_BASE_DIR"
-        "SSH_USER"
     )
 
-    validate_config config "${required[@]}"
+    validate_required_keys "$1" "${required[@]}"
 }
 
 # Load and validate server config
@@ -192,18 +203,16 @@ list_servers_from_config() {
     color_green "Configured servers:"
     for server_conf in "$servers_dir"/*.conf; do
         [[ -f "$server_conf" ]] || continue
-        
+
         # shellcheck disable=SC2155
         local server_name=$(basename "$server_conf" .conf)
         # shellcheck disable=SC2155
         local enabled=$(grep "^ENABLED=" "$server_conf" | cut -d= -f2 || echo "unknown")
-        # shellcheck disable=SC2155
-        local port=$(grep "^PORT=" "$server_conf" | cut -d= -f2 || echo "unknown")
-        
+
         if [[ "$enabled" == "true" ]]; then
-            echo "  $(color_green "✓") $server_name (port $port)"
+            echo "  $(color_green "✓") $server_name"
         else
-            echo "  $(color_red "✗") $server_name (port $port, disabled)"
+            echo "  $(color_red "✗") $server_name (disabled)"
         fi
     done
 }
