@@ -2,6 +2,16 @@
 
 Local Docker development environment for testing minectl.
 
+> [!NOTE]
+> On macOS, this environment is recommended to run with [Colima](https://github.com/abiosoft/colima) because the test servers use `systemd`.
+>
+> Start Colima before running the test harness:
+>
+> ```bash
+> colima start --cpu 4 --memory 8 --disk 40 --runtime docker
+> docker context use colima
+> ```
+
 - [Quick Start](#quick-start)
 - [Containers](#containers)
 - [Usage](#usage)
@@ -18,38 +28,67 @@ Local Docker development environment for testing minectl.
 
 ```bash
 cd test
-chmod +x test.sh
+chmod +x test.sh setup.sh
 ./test.sh
 ```
 
 This automatically:
 
-- Builds and starts containers
-- Configures SSH with password auth (minectl/minectl)
-- Sets up minectl config
-- Runs validation and server creation tests
-- Reports results
+- Builds systemd-capable Rocky Linux test servers
+- Configures SSH with password auth for automation (`root` / `minectl`)
+- Sets up the client `minectl` config
+- Verifies real `systemd` service management
+- Tests both `create-server` and `import-server`
+- Tests `jvm.properties`, file logs, and journal fallback
+- Reports pass/fail results
 
 **Manual setup:**
 
 ```bash
 cd test
-docker-compose up -d
-docker-compose exec client dnf install -y openssh-clients curl sshpass
+docker compose up -d
+docker compose exec client dnf install -y openssh-clients curl sshpass
+```
+
+## Using Colima on macOS
+
+If you're running this environment on macOS, start Colima first:
+
+```bash
+colima start --cpu 4 --memory 8 --disk 40 --runtime docker
+docker context use colima
+docker info
+```
+
+If the containers were previously created under a different Docker context, rebuild:
+
+```bash
+docker compose down -v
+docker compose build --no-cache
+docker compose up -d
+```
+
+To stop Colima when you're done:
+
+```bash
+colima stop
 ```
 
 ## Containers
 
 **minectl-client** (Rocky Linux 8.6)
 
-- SSH client, curl, sshpass installed
+- Base Rocky Linux client used for running `minectl`
+- Test harness installs `openssh-clients`, `curl`, and `sshpass`
 - minectl CLI available
 - Mount: working directory `/minectl`
 
 **minectl-server1** (localhost:2222)
 
-- Rocky Linux 8.6 with SSH server
+- Rocky Linux 8.6 with `systemd`
+- `sshd` managed as a systemd service
 - Java 17 pre-installed
+- Test fixture jar available at `/opt/minectl-fixtures/fake-server.jar`
 - Config dir: `/home/minecraft-servers`
 - Server dir: `/opt/minecraft`
 - SSH: `root` / `minectl`
@@ -63,7 +102,7 @@ docker-compose exec client dnf install -y openssh-clients curl sshpass
 ### Enter client container
 
 ```bash
-docker-compose exec client bash
+docker compose exec client bash
 ```
 
 ### SSH to server (from client)
@@ -94,13 +133,22 @@ sshpass -e minectl start root@minectl-server1 --server-name survival
 
 # Check logs
 sshpass -e minectl logs root@minectl-server1 --server-name survival
+
+# Import existing server
+sshpass -e minectl import-server root@minectl-server1 --server-name earth-1 --java-bin /usr/bin/java
+
+# Validate imported server
+sshpass -e minectl validate root@minectl-server1 --server-name earth-1
+
+# Check logs of imported server
+sshpass -e minectl logs root@minectl-server1 --server-name earth-1
 ```
 
 ## File Structure
 
 ```bash
 test/
-├── Dockerfile           # Rocky Linux 8.6 client image
+├── Dockerfile           # Rocky Linux 8.6 systemd-capable server image
 ├── docker-compose.yml   # Multi-container setup
 ├── test.sh              # Automated setup and tests
 └── README.md            # This file
@@ -109,7 +157,7 @@ test/
 ## Cleanup
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 ## Troubleshooting
@@ -118,7 +166,7 @@ docker-compose down -v
 
 ```bash
 # Check SSH server is running
-docker-compose exec server1 ps aux | grep sshd
+docker compose exec server1 ps aux | grep sshd
 
 # Try connecting with sshpass
 export SSHPASS=minectl
@@ -129,12 +177,12 @@ sshpass -e ssh -o StrictHostKeyChecking=no root@minectl-server1
 
 ```bash
 # Check logs
-docker-compose logs server1
+docker compose logs server1
 
 # Rebuild
-docker-compose down -v
-docker-compose build --no-cache
-docker-compose up -d
+docker compose down -v
+docker compose build --no-cache
+docker compose up -d server1 server2
 ```
 
 ### minectl command not found

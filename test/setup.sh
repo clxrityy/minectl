@@ -6,76 +6,60 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+elif docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+else
+    echo "✗ Neither docker-compose nor docker compose is available"
+    exit 1
+fi
+
+compose() {
+    "${COMPOSE[@]}" "$@"
+}
+
 echo "Setting up minectl development environment..."
 echo ""
 
 # Check dependencies
-for cmd in docker docker-compose; do
-    if ! command -v $cmd &> /dev/null; then
-        echo "✗ $cmd not found. Install Docker first."
-        exit 1
-    fi
-done
+if ! command -v docker >/dev/null 2>&1; then
+    echo "✗ docker not found. Install Docker first."
+    exit 1
+fi
 
 # Build and start containers
 echo "Building development containers..."
-docker-compose build
+compose build
 
 echo "Starting services..."
-docker-compose up -d
+compose up -d
 
+echo "=== MANUAL TEST FLOW ==="
 echo ""
-echo "✓ Development environment ready!"
+echo "1. Start the environment:"
+echo "   docker compose up -d --build"
 echo ""
-echo "Containers:"
-echo "  - minectl-client  (development client)"
-echo "  - minectl-server1 (SSH: localhost:2222)"
-echo "  - minectl-server2 (SSH: localhost:2223)"
+echo "2. Wait for systemd and sshd:"
+echo "   docker compose exec server1 systemctl is-system-running"
+echo "   docker compose exec server1 systemctl is-active sshd"
 echo ""
-echo "=== SETUP FROM HOST (not inside container) ==="
+echo "3. Enter the client container:"
+echo "   docker compose exec client bash"
 echo ""
-echo "1. Generate SSH key on host:"
-echo "   ssh-keygen -t rsa -f ~/.ssh/minectl_dev -N ''"
+echo "4. Inside client, install helpers:"
+echo "   dnf install -y openssh-clients curl sshpass"
 echo ""
-echo "2. Copy to servers (from host):"
-echo "   docker cp ~/.ssh/minectl_dev.pub minectl-server1:/root/.ssh/authorized_keys"
-echo "   docker cp ~/.ssh/minectl_dev.pub minectl-server2:/root/.ssh/authorized_keys"
-echo ""
-echo "3. Fix permissions on servers:"
-echo "   docker-compose exec server1 chmod 600 /root/.ssh/authorized_keys"
-echo "   docker-compose exec server2 chmod 600 /root/.ssh/authorized_keys"
-echo ""
-echo "=== ENTER CLIENT CONTAINER ==="
-echo ""
-echo "4. Enter client container:"
-echo "   docker-compose exec client bash"
-echo ""
-echo "=== INSIDE CLIENT CONTAINER ==="
-echo ""
-echo "5. Install dependencies in client (inside container):"
-echo "   dnf install -y openssh-clients curl"
-echo ""
-echo "6. From HOST: Copy SSH key to client:"
-echo "   docker cp ~/.ssh/minectl_dev minectl-client:/root/.ssh/"
-echo ""
-echo "7. Inside client: Test SSH:"
-echo "   ssh -o StrictHostKeyChecking=no -i ~/.ssh/minectl_dev root@minectl-server1"
-echo ""
-echo "8. Inside client: Create minectl config:"
+echo "5. Inside client, create client config:"
 echo "   mkdir -p ~/.minectl"
 echo "   cat > ~/.minectl/config <<'EOF'"
 echo "CONFIG_DIR=/home/minecraft-servers"
 echo "SSH_USER=minecraft-servers"
 echo "EOF"
 echo ""
-echo "9. Test minectl:"
-echo "   minectl init root@minectl-server1"
-echo "   minectl create-server root@minectl-server1 --server-name survival --memory 1G"
-echo "   minectl list root@minectl-server1"
-echo "   minectl start root@minectl-server1 --server-name survival"
-echo "   minectl logs root@minectl-server1 --server-name survival"
+echo "6. From inside client, test SSH:"
+echo "   sshpass -p minectl ssh -o StrictHostKeyChecking=no root@minectl-server1"
 echo ""
-echo "=== CLEANUP ==="
-echo ""
-echo "Stop environment (from host):"
-echo "  docker-compose down -v"
+echo "7. Run the automated harness when ready:"
+echo "   cd /minectl/test"
+echo "   ./test.sh"

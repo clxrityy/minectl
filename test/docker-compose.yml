@@ -1,6 +1,4 @@
-
 services:
-  # Development client (runs minectl commands)
   client:
     image: rockylinux:8.6
     container_name: minectl-client
@@ -14,12 +12,18 @@ services:
     networks:
       - minectl-dev
 
-  # Development server 1
   server1:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: minectl-server1
+    privileged: true
+    tty: true
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    stop_signal: SIGRTMIN+3
     environment:
       - HOSTNAME=minectl-server1
     volumes:
@@ -32,12 +36,18 @@ services:
     ports:
       - "2222:22"
 
-  # Development server 2
   server2:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: minectl-server2
+    privileged: true
+    tty: true
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    stop_signal: SIGRTMIN+3
     environment:
       - HOSTNAME=minectl-server2
     volumes:

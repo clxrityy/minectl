@@ -1,39 +1,61 @@
 FROM rockylinux:8.6
 
+ENV container=docker
+
 RUN dnf install -y \
     bash \
+    systemd \
+    dbus \
     openssh-server \
     openssh-clients \
     curl \
-    java-17-openjdk-headless \
     sudo \
     vim \
-    net-tools
+    net-tools \
+    procps-ng \
+    java-17-openjdk-headless \
+    java-17-openjdk-devel \
+    && dnf clean all
 
 # Create minecraft user
 RUN useradd -m -s /bin/bash minecraft
 
-# Setup SSH
-RUN mkdir -p /run/sshd && \
-    ssh-keygen -A && \
-    sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+# Create a tiny runnable Java jar for deterministic tests
+RUN mkdir -p /opt/minectl-fixtures/src && \
+    cat > /opt/minectl-fixtures/src/FakeServer.java <<'EOF'
+public class FakeServer {
+    public static void main(String[] args) throws Exception {
+        System.out.println("fake-server started");
+        Thread.sleep(Long.MAX_VALUE);
+    }
+}
+EOF
+RUN javac /opt/minectl-fixtures/src/FakeServer.java && \
+    printf 'Main-Class: FakeServer\n' > /opt/minectl-fixtures/manifest.txt && \
+    jar cfm /opt/minectl-fixtures/fake-server.jar \
+    /opt/minectl-fixtures/manifest.txt \
+    -C /opt/minectl-fixtures/src FakeServer.class
 
-# Allow passwordless sudo for systemctl
-RUN echo "minecraft ALL=(ALL) NOPASSWD: /usr/bin/systemctl" >> /etc/sudoers.d/minecraft
-
-# Create config directory
-RUN mkdir -p /home/minecraft-servers/servers && \
-    chown minecraft:minecraft /home/minecraft-servers
-
-# Setup SSH with key-based auth
-RUN mkdir -p /root/.ssh && \
+# SSH setup
+RUN mkdir -p /run/sshd /root/.ssh && \
     chmod 700 /root/.ssh && \
-    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \
-    echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && \
-    echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && \
-    echo "root:minectl" | chpasswd
+    ssh-keygen -A && \
+    echo "root:minectl" | chpasswd && \
+    sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -ri 's/^#?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -ri 's/^#?UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
 
-EXPOSE 22
+# Allow minecraft user to manage services
+RUN echo "minecraft ALL=(ALL) NOPASSWD: /usr/bin/systemctl" > /etc/sudoers.d/minecraft && \
+    chmod 440 /etc/sudoers.d/minecraft
 
-CMD ["/usr/sbin/sshd", "-D"]
+# Create config root
+RUN mkdir -p /home/minecraft-servers/servers && \
+    chown -R minecraft:minecraft /home/minecraft-servers
+
+# Enable sshd under systemd
+RUN systemctl enable sshd
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/usr/sbin/init"]
